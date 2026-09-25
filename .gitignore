@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.local
+.tools/
+storage/
+temp/
+*.log
+cookies*.txt
+secrets/
+.DS_Store
+Thumbs.db
