@@ -110,3 +110,41 @@ test("retries a transient failure but not malformed jobs", async (t) => {
     await assert.rejects(() => runtime.execute({ type: "download", jobId: "bad", url: "ftp://example.com/file" }));
     assert.equal(attempts, 2);
 });
+
+test("creates batch item directories before checking disk space", async (t) => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-batch-"));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const core = {
+        resolveMedia: async () => ({ url: "", outputType: "auto", engines: [] }),
+        inspectMedia: async () => ({}),
+        async downloadMedia(_url, directory) {
+            const filePath = path.join(directory, "clip.mp4");
+            await fs.writeFile(filePath, "data");
+            return artifact(filePath);
+        },
+        async processMedia(value) {
+            return value;
+        },
+    };
+    const storage = {
+        async put(value) {
+            return {
+                key: "batch/result.zip",
+                sizeBytes: value.sizeBytes,
+                contentType: value.mime,
+                fileName: value.fileName,
+                location: "memory://batch/result.zip",
+            };
+        },
+        async delete() {},
+    };
+    const runtime = new WorkerRuntime({ core, storage, tempRoot: root, maxAttempts: 1 });
+    const result = await runtime.execute({
+        type: "batch",
+        jobId: "batch_123",
+        archiveName: "media.zip",
+        items: [{ url: "https://example.com/video" }],
+    });
+
+    assert.equal(result.output.key, "batch/result.zip");
+});

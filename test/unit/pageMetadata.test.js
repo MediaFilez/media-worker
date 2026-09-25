@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
+import http from "node:http";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { extractPageMetadata } from "../../src/media-core/download/engines/pageMetadata.js";
+import { downloadFromPageMetadata, extractPageMetadata } from "../../src/media-core/download/engines/pageMetadata.js";
+
+async function listen(handler) {
+    const server = http.createServer(handler);
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return server;
+}
 
 test("extracts ordered Open Graph media and resolves relative URLs", () => {
     const html = `
@@ -64,4 +74,26 @@ test("decodes each HTML entity exactly once", () => {
     const metadata = extractPageMetadata(html, new URL("https://example.com/post"), "image");
 
     assert.equal(metadata.title, "A &quot;nested&quot; title");
+});
+
+test("uses the shorter page probe timeout before falling back", async (t) => {
+    const server = await listen((_request, response) => {
+        setTimeout(() => response.end("<html></html>"), 300).unref();
+    });
+    const address = server.address();
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-page-timeout-"));
+    t.after(async () => {
+        await fs.rm(directory, { recursive: true, force: true });
+        await new Promise((resolve) => server.close(resolve));
+    });
+
+    const startedAt = performance.now();
+    await assert.rejects(
+        downloadFromPageMetadata(`http://127.0.0.1:${address.port}/slow`, directory, {
+            outputType: "auto",
+            pageMetadataTimeoutMs: 50,
+            trustedHosts: ["127.0.0.1"],
+        }),
+    );
+    assert.ok(performance.now() - startedAt < 250, "a blocked page probe must fail fast");
 });

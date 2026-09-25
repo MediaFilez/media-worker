@@ -53,6 +53,7 @@ export const config = {
     minFreeDiskBytes: parseSize(process.env.MIN_FREE_DISK_SPACE, 2 * GB),
     httpResponseTimeoutMs: parseInteger(process.env.HTTP_RESPONSE_TIMEOUT_MS, 45_000, 5_000, 5 * 60_000),
     httpIdleTimeoutMs: parseInteger(process.env.HTTP_IDLE_TIMEOUT_MS, 60_000, 5_000, 5 * 60_000),
+    pageMetadataTimeoutMs: parseInteger(process.env.PAGE_METADATA_TIMEOUT_MS, 12_000, 5_000, 60_000),
     ytdlpTimeoutMs: parseInteger(process.env.YTDLP_TIMEOUT_MS, 20 * 60_000, 30_000, 60 * 60_000),
     ffmpegTimeoutMs: parseInteger(process.env.FFMPEG_TIMEOUT_MS, 20 * 60_000, 30_000, 60 * 60_000),
     jobTimeoutMs: parseInteger(process.env.JOB_TIMEOUT_MS, 30 * 60_000, 60_000, 2 * 60 * 60_000),
@@ -89,6 +90,13 @@ export const config = {
     cobaltApiKey: process.env.COBALT_API_KEY,
     tempPrefix: process.env.TEMP_PREFIX || "mediaworker-",
     userAgent: process.env.HTTP_USER_AGENT || "MediaFilez-Worker/0.1",
+    redisUrl: process.env.REDIS_URL || null,
+    queuePrefix: process.env.QUEUE_PREFIX || "mediafilez",
+    workerConcurrency: parseInteger(process.env.WORKER_CONCURRENCY, 2, 1, 16),
+    r2AccountId: process.env.R2_ACCOUNT_ID || null,
+    r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || null,
+    r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY || null,
+    r2Bucket: process.env.R2_BUCKET || null,
 };
 
 export function requireConfig(keys) {

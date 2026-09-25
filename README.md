@@ -15,7 +15,7 @@ Serializable job
     -> structured result
 ```
 
-`WorkerRuntime.execute()` is the queue seam. A future BullMQ consumer should deserialize a job, pass the plain object to this method, relay progress, and return its result. Queue transport does not belong inside Media Core.
+`WorkerRuntime.execute()` is the queue seam. The BullMQ entrypoint validates API contract version 1, passes a plain runtime job through this seam, relays progress, and returns the structured result. Queue transport does not belong inside Media Core.
 
 ## Media Core interface
 
@@ -77,11 +77,19 @@ pnpm run build
 node dist/worker.js ./job.json
 ```
 
+Run the connected queue worker with `REDIS_URL`, `QUEUE_PREFIX`, and shared R2 credentials configured:
+
+```bash
+pnpm start
+```
+
+The API and Worker must use the same Redis URL, queue prefix, R2 bucket, and contract version. Active cancellation is delivered through a short-lived Redis control key and becomes an `AbortSignal` inside the runtime.
+
 Progress is written as JSON Lines to stderr. The final result is written to stdout.
 
 ## Storage
 
-`MediaStorage` is the storage seam. The included `LocalStorageAdapter` writes through a temporary file and atomically renames the completed object. It is suitable for development or a mounted persistent volume.
+`MediaStorage` is the storage seam. The included `LocalStorageAdapter` writes through a temporary file and atomically renames the completed object. When all R2 variables are configured, the default runtime uses `R2StorageAdapter` and returns only its generated object key and public-safe metadata.
 
 Cloudflare R2 should be added as a second adapter when credentials, bucket ownership, retention, and object-key policy are defined. Download engines and FFmpeg must never upload to storage directly.
 
@@ -109,3 +117,9 @@ pnpm run check
 This builds TypeScript, verifies the Discord/Fastify independence rule, runs the migrated MediaFilez core tests and Worker tests, and checks formatting.
 
 The mature downloader implementation remains JavaScript during the first extraction phase and is compiled through `allowJs`. New Worker/Core interfaces are TypeScript. Modules can be converted incrementally while the interface tests continue to prove behavior.
+
+## Performance tuning
+
+The Worker reuses HTTP keep-alive connections for direct media transfers and gives page metadata probes a shorter, independent timeout so blocked pages do not delay the next engine. Set `PAGE_METADATA_TIMEOUT_MS` (5–60 seconds) when a deployment needs a different probe budget. `HTTP_RESPONSE_TIMEOUT_MS` and `HTTP_IDLE_TIMEOUT_MS` still control actual media transfers.
+
+Remote transfer time remains bounded by the source server, network path, and file size. Cookies can significantly reduce social-site challenge and login delays; set `MEDIA_COOKIES_FILE` to a private Netscape-format cookie file and keep it outside the repository.

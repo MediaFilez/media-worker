@@ -165,10 +165,11 @@ function expectedKind(outputType, mediaKind) {
 }
 
 export async function downloadFromPageMetadata(rawUrl, attemptDir, options = {}) {
-    const timeoutSignal = AbortSignal.timeout(config.httpResponseTimeoutMs);
+    const timeoutSignal = AbortSignal.timeout(options.pageMetadataTimeoutMs ?? config.pageMetadataTimeoutMs);
     const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
     const { response, finalUrl } = await openPublicHttpResponse(rawUrl, {
         signal,
+        trustedHosts: options.trustedHosts,
         headers: { accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5" },
     });
     const contentType = String(response.headers["content-type"] || "").toLowerCase();

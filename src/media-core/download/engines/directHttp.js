@@ -10,6 +10,8 @@ import { assertPublicHttpUrl, publicDnsLookup } from "../../utils/security.js";
 import { formatBytes } from "../../utils/format.js";
 
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 32, maxFreeSockets: 8, timeout: 30_000 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32, maxFreeSockets: 8, timeout: 30_000 });
 
 function parseContentDisposition(value) {
     if (!value) return null;
@@ -106,6 +108,7 @@ function requestMedia(url, options) {
             {
                 method: "GET",
                 signal: options.signal,
+                agent: url.protocol === "https:" ? httpsAgent : httpAgent,
                 lookup: trusted ? undefined : publicDnsLookup,
                 headers: {
                     "user-agent": config.userAgent,

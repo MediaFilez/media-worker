@@ -1,6 +1,6 @@
 {
     "name": "mediafilez-worker",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Standalone MediaFilez worker and reusable media core",
     "type": "module",
     "main": "dist/index.js",
@@ -17,7 +17,8 @@
     "packageManager": "pnpm@11.25.0",
     "scripts": {
         "build": "tsc -p tsconfig.json",
-        "start": "node dist/worker.js",
+        "start": "node dist/queue-worker.js",
+        "start:job": "node dist/worker.js",
         "dev": "tsx src/worker.ts",
         "test": "tsx --test test/unit/*.test.js test/worker/*.test.js",
         "check:boundaries": "node scripts/check-boundaries.mjs",
@@ -29,11 +30,14 @@
         "node": ">=22.13"
     },
     "dependencies": {
+        "@aws-sdk/client-s3": "3.1140.0",
         "@ffprobe-installer/ffprobe": "2.1.2",
         "archiver": "7.0.1",
+        "bullmq": "6.3.8",
         "dotenv": "17.4.2",
         "ffmpeg-static": "5.3.0",
         "file-type": "22.1.1",
+        "ioredis": "6.0.0",
         "sanitize-filename": "1.6.4",
         "youtube-dl-exec": "3.1.15",
         "youtubei.js": "18.1.0",

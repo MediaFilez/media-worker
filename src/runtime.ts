@@ -9,7 +9,7 @@ import { executeCleanupJob } from "./jobs/cleanup.job.js";
 import { executeDownloadJob } from "./jobs/download.job.js";
 import { workerJobSchema, type WorkerJob } from "./jobs/schema.js";
 import type { WorkerResult } from "./jobs/types.js";
-import { LocalStorageAdapter } from "./storage/local.js";
+import { createDefaultStorage } from "./storage/default.js";
 import type { MediaStorage } from "./storage/storage.js";
 
 export interface WorkerRuntimeOptions {
@@ -46,7 +46,7 @@ export class WorkerRuntime {
 
     constructor(options: WorkerRuntimeOptions = {}) {
         this.core = options.core ?? createMediaCore();
-        this.storage = options.storage ?? new LocalStorageAdapter(config.storageDir);
+        this.storage = options.storage ?? createDefaultStorage();
         this.tempRoot = options.tempRoot ?? config.tempDir ?? undefined;
         this.timeoutMs = options.timeoutMs ?? config.jobTimeoutMs;
         this.maxAttempts = options.maxAttempts ?? config.maxJobAttempts;

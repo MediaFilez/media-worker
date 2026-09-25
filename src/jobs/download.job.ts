@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import type { MediaCore } from "../media-core/index.js";
 import type { MediaArtifact } from "../media-core/types.js";
 import type { MediaStorage, StoredMedia } from "../storage/storage.js";
@@ -15,6 +16,7 @@ export async function downloadAndProcess(job: DownloadJob, jobDir: string, core:
     const effectiveOutputType =
         job.output.format === "mp3" ? "audio" : job.output.format === "mp4" ? "video" : job.output.format === "jpg" ? "image" : job.output.type;
     const maxDownloadBytes = Math.min(job.maxDownloadBytes ?? config.maxDownloadBytes, config.maxDownloadBytes);
+    await fs.mkdir(jobDir, { recursive: true });
     await assertTempDiskSpace(jobDir, maxDownloadBytes);
     const download = await core.downloadMedia(job.url, jobDir, {
         outputType: effectiveOutputType,
@@ -52,5 +54,5 @@ export async function executeDownloadJob(
 ): Promise<StoredMedia> {
     const artifact = await downloadAndProcess(job, jobDir, dependencies.core, context);
     await context.onProgress?.({ phase: "storing", detail: "Storing the completed artifact" });
-    return await dependencies.storage.put(artifact);
+    return await dependencies.storage.put(artifact, { signal: context.signal });
 }

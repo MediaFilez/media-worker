@@ -45,5 +45,5 @@ export async function executeBatchJob(
     const archiveName = `${path.basename(job.archiveName, path.extname(job.archiveName)) || "media"}.zip`;
     const archive = await createArchive(artifacts, path.join(jobDir, archiveName), { signal: context.signal });
     await context.onProgress?.({ phase: "storing", detail: "Storing ZIP archive" });
-    return { archive: await dependencies.storage.put(archive), items: artifacts };
+    return { archive: await dependencies.storage.put(archive, { signal: context.signal }), items: artifacts };
 }

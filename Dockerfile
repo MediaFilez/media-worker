@@ -42,4 +42,4 @@ USER node
 ENV WORKER_STORAGE_DIR=/data/storage \
     WORKER_TEMP_DIR=/data/temp
 
-ENTRYPOINT ["node", "dist/worker.js"]
+ENTRYPOINT ["node", "dist/queue-worker.js"]
