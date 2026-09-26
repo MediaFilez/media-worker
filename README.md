@@ -126,6 +126,8 @@ Remote transfer time remains bounded by the source server, network path, and fil
 
 Instagram authentication specifically requires a non-expired `sessionid` cookie scoped to `instagram.com`. A file without it can still be useful for other sites, but cannot authenticate Instagram. `INSTAGRAM_PROXY_HOSTS` is empty by default: set it only to a service you operate or explicitly trust that returns media files rather than HTML pages.
 
+For a split API/Worker deployment, use `compose.production.yaml`. It joins the API queue network and the separate Cobalt engine network, so the configured `http://cobalt:9000` endpoints stay reachable after a Worker redeploy. Set `MEDIA_COOKIES_HOST_PATH` to the private host path before running `docker compose -f compose.production.yaml up -d --build`.
+
 `YOUTUBE_JS_ENABLED` is disabled by default because youtubei.js needs a separately configured JavaScript evaluator. Leave it disabled unless that evaluator is installed. When the cookie file contains a valid YouTube session, set `YTDLP_COOKIES_FOR_YOUTUBE=true` to avoid avoidable login challenges.
 
 The command-line fallbacks use one retry and a 15-second connection timeout by default. gallery-dl also has a 30-second total process guard so an extractor that hangs cannot hold a job indefinitely. These settings keep blocked or unavailable sources moving to the next engine quickly while still allowing a transient retry. Tune `YTDLP_RETRIES`, `YTDLP_SOCKET_TIMEOUT_SECONDS`, `GALLERY_DL_RETRIES`, `GALLERY_DL_HTTP_TIMEOUT_SECONDS`, and `GALLERY_DL_TIMEOUT_MS` for slower sources.

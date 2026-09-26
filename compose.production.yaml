@@ -1,0 +1,21 @@
+services:
+    worker:
+        build: .
+        image: mediafilez-worker:prod
+        container_name: media-worker
+        env_file:
+            - .env
+        restart: unless-stopped
+        volumes:
+            - ${MEDIA_COOKIES_HOST_PATH:?Set MEDIA_COOKIES_HOST_PATH to the private host cookie file}:/run/secrets/cookies.txt:ro
+        networks:
+            - api
+            - engines
+
+networks:
+    api:
+        external: true
+        name: ${MEDIA_API_DOCKER_NETWORK:-mediaapi_default}
+    engines:
+        external: true
+        name: ${MEDIA_ENGINE_DOCKER_NETWORK:-mediafilez_default}
