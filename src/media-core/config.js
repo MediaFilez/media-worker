@@ -71,7 +71,10 @@ export const config = {
     ffmpegPath: process.env.FFMPEG_PATH || null,
     ffprobePath: process.env.FFPROBE_PATH || null,
     ffmpegThreads: parseInteger(process.env.FFMPEG_THREADS, 4, 1, 32),
-    youtubeJsEnabled: parseBoolean(process.env.YOUTUBE_JS_ENABLED, true),
+    // youtubei.js needs an explicitly configured JavaScript evaluator. Keep it
+    // off unless the operator has installed and configured one; otherwise every
+    // YouTube failure pays for a fallback that cannot succeed.
+    youtubeJsEnabled: parseBoolean(process.env.YOUTUBE_JS_ENABLED, false),
     galleryDlEnabled: parseBoolean(process.env.GALLERY_DL_ENABLED, true),
     galleryDlPath: process.env.GALLERY_DL_PATH || null,
     pageMetadataEnabled: parseBoolean(process.env.PAGE_METADATA_ENABLED, true),

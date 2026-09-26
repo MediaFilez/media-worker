@@ -17,3 +17,16 @@ test("does not force an unavailable yt-dlp impersonation target", async () => {
 
     assert.equal(stdout, "null");
 });
+
+test("keeps YouTube.js disabled until an evaluator is configured", async () => {
+    const configUrl = new URL("../../src/media-core/config.js", import.meta.url).href;
+    const script = `import { config } from ${JSON.stringify(configUrl)}; process.stdout.write(String(config.youtubeJsEnabled));`;
+    const env = { ...process.env };
+    delete env.YOUTUBE_JS_ENABLED;
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", script], {
+        cwd: os.tmpdir(),
+        env,
+    });
+
+    assert.equal(stdout, "false");
+});

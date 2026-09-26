@@ -123,3 +123,5 @@ The mature downloader implementation remains JavaScript during the first extract
 The Worker reuses HTTP keep-alive connections for direct media transfers and gives page metadata probes a shorter, independent timeout so blocked pages do not delay the next engine. Set `PAGE_METADATA_TIMEOUT_MS` (5–60 seconds) when a deployment needs a different probe budget. `HTTP_RESPONSE_TIMEOUT_MS` and `HTTP_IDLE_TIMEOUT_MS` still control actual media transfers.
 
 Remote transfer time remains bounded by the source server, network path, and file size. Cookies can significantly reduce social-site challenge and login delays; set `MEDIA_COOKIES_FILE` to a private Netscape-format cookie file and keep it outside the repository.
+
+`YOUTUBE_JS_ENABLED` is disabled by default because youtubei.js needs a separately configured JavaScript evaluator. Leave it disabled unless that evaluator is installed. When the cookie file contains a valid YouTube session, set `YTDLP_COOKIES_FOR_YOUTUBE=true` to avoid avoidable login challenges.
