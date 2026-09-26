@@ -1,6 +1,7 @@
 allowBuilds:
     esbuild: true
     ffmpeg-static: true
+    "@ffprobe-installer/linux-x64": true
     msgpackr-extract: true
     youtube-dl-exec: true
 minimumReleaseAgeExclude:
