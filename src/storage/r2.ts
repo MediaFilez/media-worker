@@ -10,6 +10,7 @@ export interface R2StorageOptions {
     accessKeyId: string;
     secretAccessKey: string;
     bucket: string;
+    publicBucket?: string | null;
 }
 
 export class R2StorageAdapter implements MediaStorage {
@@ -21,15 +22,19 @@ export class R2StorageAdapter implements MediaStorage {
             credentials: { accessKeyId: options.accessKeyId, secretAccessKey: options.secretAccessKey },
         });
     }
-    async put(artifact: MediaArtifact, options: { signal?: AbortSignal } = {}): Promise<StoredMedia> {
+    async put(artifact: MediaArtifact, options: { signal?: AbortSignal; public?: boolean } = {}): Promise<StoredMedia> {
+        if (options.public && !this.options.publicBucket) throw new Error("Public R2 delivery is not configured.");
+        const bucket = options.public ? this.options.publicBucket! : this.options.bucket;
         const day = new Date().toISOString().slice(0, 10);
         const key = `${day}/${crypto.randomUUID()}-${path.basename(artifact.fileName)}`;
         await this.client.send(
             new PutObjectCommand({
-                Bucket: this.options.bucket,
+                Bucket: bucket,
                 Key: key,
                 Body: createReadStream(artifact.filePath),
+                ContentLength: artifact.sizeBytes,
                 ...(artifact.mime ? { ContentType: artifact.mime } : {}),
+                ...(options.public ? { ContentDisposition: "inline", CacheControl: "public, max-age=86400" } : {}),
             }),
             { abortSignal: options.signal },
         );
@@ -38,7 +43,7 @@ export class R2StorageAdapter implements MediaStorage {
             sizeBytes: artifact.sizeBytes,
             contentType: artifact.mime,
             fileName: artifact.fileName,
-            location: `r2://${this.options.bucket}/${key}`,
+            location: `r2://${bucket}/${key}`,
         };
     }
     async delete(key: string): Promise<void> {

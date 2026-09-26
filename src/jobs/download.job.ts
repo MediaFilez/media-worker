@@ -54,5 +54,5 @@ export async function executeDownloadJob(
 ): Promise<StoredMedia> {
     const artifact = await downloadAndProcess(job, jobDir, dependencies.core, context);
     await context.onProgress?.({ phase: "storing", detail: "Storing the completed artifact" });
-    return await dependencies.storage.put(artifact, { signal: context.signal });
+    return await dependencies.storage.put(artifact, { signal: context.signal, public: job.delivery === "public" });
 }

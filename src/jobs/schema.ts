@@ -26,6 +26,7 @@ export const downloadJobSchema = z.object({
     type: z.literal("download"),
     jobId: id,
     url: z.url({ protocol: /^https?$/ }),
+    delivery: z.enum(["private", "public"]).default("private"),
     output,
     maxDownloadBytes: z
         .number()

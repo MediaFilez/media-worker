@@ -25,7 +25,8 @@ export class LocalStorageAdapter implements MediaStorage {
         this.rootDir = path.resolve(rootDir);
     }
 
-    async put(artifact: MediaArtifact, options: { signal?: AbortSignal } = {}): Promise<StoredMedia> {
+    async put(artifact: MediaArtifact, options: { signal?: AbortSignal; public?: boolean } = {}): Promise<StoredMedia> {
+        if (options.public) throw new Error("Public media delivery requires a dedicated R2 bucket.");
         options.signal?.throwIfAborted();
         const key = defaultKey(artifact);
         const destination = path.resolve(this.rootDir, ...key.split("/"));
