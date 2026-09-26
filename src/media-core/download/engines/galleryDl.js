@@ -97,7 +97,7 @@ export async function downloadWithGalleryDl(rawUrl, attemptDir, options = {}) {
     let processError = null;
     try {
         await runProcess(resolveGalleryDlPath(), args, {
-            timeoutMs: config.ytdlpTimeoutMs,
+            timeoutMs: config.galleryDlTimeoutMs,
             signal: options.signal,
         });
     } catch (error) {

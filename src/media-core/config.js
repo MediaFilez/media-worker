@@ -81,6 +81,7 @@ export const config = {
     galleryDlPath: process.env.GALLERY_DL_PATH || null,
     galleryDlRetries: parseInteger(process.env.GALLERY_DL_RETRIES, 1, 1, 5),
     galleryDlHttpTimeoutSeconds: parseInteger(process.env.GALLERY_DL_HTTP_TIMEOUT_SECONDS, 15, 5, 120),
+    galleryDlTimeoutMs: parseInteger(process.env.GALLERY_DL_TIMEOUT_MS, 30_000, 5_000, 10 * 60_000),
     pageMetadataEnabled: parseBoolean(process.env.PAGE_METADATA_ENABLED, true),
     pageMetadataMaxBytes: parseSize(process.env.PAGE_METADATA_MAX_SIZE, MB, 4 * MB),
     instagramProxyHosts: process.env.INSTAGRAM_PROXY_HOSTS === undefined ? ["www.kkkinstagram.com"] : parseList(process.env.INSTAGRAM_PROXY_HOSTS),
