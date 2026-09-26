@@ -16,6 +16,7 @@ export function parseApiDownloadJob(input: unknown): { payload: ApiDownloadJob; 
             type: payload.type,
             jobId: payload.jobId,
             url: payload.url,
+            delivery: payload.delivery,
             output: payload.output,
             maxDownloadBytes: payload.maxDownloadBytes,
         },

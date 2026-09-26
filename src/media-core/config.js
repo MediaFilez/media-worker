@@ -107,6 +107,7 @@ export const config = {
     r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || null,
     r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY || null,
     r2Bucket: process.env.R2_BUCKET || null,
+    r2PublicBucket: process.env.R2_PUBLIC_BUCKET || null,
 };
 
 export function requireConfig(keys) {
