@@ -124,6 +124,8 @@ The Worker reuses HTTP keep-alive connections for direct media transfers and giv
 
 Remote transfer time remains bounded by the source server, network path, and file size. Cookies can significantly reduce social-site challenge and login delays; set `MEDIA_COOKIES_FILE` to a private Netscape-format cookie file and keep it outside the repository.
 
+Instagram authentication specifically requires a non-expired `sessionid` cookie scoped to `instagram.com`. A file without it can still be useful for other sites, but cannot authenticate Instagram. `INSTAGRAM_PROXY_HOSTS` is empty by default: set it only to a service you operate or explicitly trust that returns media files rather than HTML pages.
+
 `YOUTUBE_JS_ENABLED` is disabled by default because youtubei.js needs a separately configured JavaScript evaluator. Leave it disabled unless that evaluator is installed. When the cookie file contains a valid YouTube session, set `YTDLP_COOKIES_FOR_YOUTUBE=true` to avoid avoidable login challenges.
 
 The command-line fallbacks use one retry and a 15-second connection timeout by default. gallery-dl also has a 30-second total process guard so an extractor that hangs cannot hold a job indefinitely. These settings keep blocked or unavailable sources moving to the next engine quickly while still allowing a transient retry. Tune `YTDLP_RETRIES`, `YTDLP_SOCKET_TIMEOUT_SECONDS`, `GALLERY_DL_RETRIES`, `GALLERY_DL_HTTP_TIMEOUT_SECONDS`, and `GALLERY_DL_TIMEOUT_MS` for slower sources.

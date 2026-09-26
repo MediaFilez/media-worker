@@ -84,7 +84,9 @@ export const config = {
     galleryDlTimeoutMs: parseInteger(process.env.GALLERY_DL_TIMEOUT_MS, 30_000, 5_000, 10 * 60_000),
     pageMetadataEnabled: parseBoolean(process.env.PAGE_METADATA_ENABLED, true),
     pageMetadataMaxBytes: parseSize(process.env.PAGE_METADATA_MAX_SIZE, MB, 4 * MB),
-    instagramProxyHosts: process.env.INSTAGRAM_PROXY_HOSTS === undefined ? ["www.kkkinstagram.com"] : parseList(process.env.INSTAGRAM_PROXY_HOSTS),
+    // Only enable proxies that return the media file itself. Public profile viewers
+    // commonly return HTML, which is not a safe or useful download fallback.
+    instagramProxyHosts: parseList(process.env.INSTAGRAM_PROXY_HOSTS),
     instagramProxyFirst: parseBoolean(process.env.INSTAGRAM_PROXY_FIRST, false),
     redditProxyHosts: process.env.REDDIT_PROXY_HOSTS === undefined ? ["redditez.com"] : parseList(process.env.REDDIT_PROXY_HOSTS),
     disabledEngines: new Set(parseList(process.env.DISABLED_ENGINES).map((item) => item.toLowerCase())),

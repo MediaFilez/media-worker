@@ -4,7 +4,7 @@ import { config } from "../config.js";
 import { DownloadMethodError, UserFacingError, userError } from "../utils/errors.js";
 import { assertPublicHttpUrl } from "../utils/security.js";
 import { log } from "../utils/logger.js";
-import { planEngines } from "./planner.js";
+import { classifySource, planEngines } from "./planner.js";
 import { commitArtifact, recoverArtifact, validateArtifact } from "./artifact.js";
 import { downloadDirectHttp } from "./engines/directHttp.js";
 import { downloadWithYtDlp } from "./engines/ytDlp.js";
@@ -42,9 +42,10 @@ function abortError() {
     return userError("The job timed out before the download finished. Try a smaller file or a faster source.", "JOB_TIMEOUT", { stopFallback: true });
 }
 
-function publicFailure(attempts, outputType) {
+function publicFailure(rawUrl, attempts, outputType) {
     const messages = attempts.map((attempt) => attempt.error).join(" ");
     const engines = [...new Set(attempts.map((attempt) => attempt.engine))].join(", ");
+    const source = classifySource(rawUrl);
     if (attempts.length === 0) {
         return "No download engine is enabled for this URL. Check DISABLED_ENGINES and engine configuration.";
     }
@@ -57,8 +58,8 @@ function publicFailure(attempts, outputType) {
     if (outputType !== "auto" && /contains image media, not video|returned image media/i.test(messages)) {
         return "The source is an image. Choose image output and try again.";
     }
-    if (/account authentication|cookies|login required|empty media response/i.test(messages)) {
-        return "This post needs an authenticated session. Export fresh browser cookies to MEDIA_COOKIES_FILE, then try again.";
+    if (source.instagram && /account authentication|cookies|login required/i.test(messages)) {
+        return "This Instagram post needs an authenticated session. Export fresh browser cookies with an Instagram session to MEDIA_COOKIES_FILE, then try again.";
     }
     if (/HTTP (?:Error )?403|forbidden|blocked this server's network address/i.test(messages)) {
         return "This source blocked automated access (HTTP 403), and no enabled engine could extract its media. Try a direct media URL or another source.";
@@ -188,7 +189,7 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
         return await commitResult(silentFallback.artifact, silentFallback.method, silentFallback.metadata, silentFallback.recovered);
     }
 
-    const error = userError(publicFailure(attempts, outputType), "DOWNLOAD_FAILED");
+    const error = userError(publicFailure(rawUrl, attempts, outputType), "DOWNLOAD_FAILED");
     error.attempts = attempts;
     throw error;
 }

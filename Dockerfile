@@ -15,7 +15,7 @@ RUN pnpm prune --prod
 
 FROM node:22-bookworm-slim AS runtime
 
-ARG GALLERY_DL_VERSION=1.32.10
+ARG GALLERY_DL_VERSION=1.32.13
 ARG YT_DLP_VERSION=2026.8.19
 
 RUN apt-get update \

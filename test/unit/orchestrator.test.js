@@ -392,6 +392,48 @@ test("does not misreport a generic HTTP 403 as missing account cookies", async (
     );
 });
 
+test("does not report an Instagram session requirement for another platform's empty response", async (t) => {
+    const jobDir = await tempJob();
+    t.after(() => fs.rm(jobDir, { recursive: true, force: true }));
+
+    await assert.rejects(
+        downloadMedia("https://x.com/example/status/1", jobDir, {
+            outputType: "video",
+            plan: ["cobalt"],
+            engines: new Map([
+                [
+                    "cobalt",
+                    async () => {
+                        throw new DownloadMethodError("cobalt", "error.api.fetch.empty");
+                    },
+                ],
+            ]),
+        }),
+        (error) => /No playable video/.test(error.message) && !/authenticated session|cookies/i.test(error.message),
+    );
+});
+
+test("reports an authenticated session only for an Instagram login failure", async (t) => {
+    const jobDir = await tempJob();
+    t.after(() => fs.rm(jobDir, { recursive: true, force: true }));
+
+    await assert.rejects(
+        downloadMedia("https://www.instagram.com/reel/example/", jobDir, {
+            outputType: "video",
+            plan: ["yt-dlp"],
+            engines: new Map([
+                [
+                    "yt-dlp",
+                    async () => {
+                        throw new DownloadMethodError("yt-dlp", "Login required");
+                    },
+                ],
+            ]),
+        }),
+        /This Instagram post needs an authenticated session/,
+    );
+});
+
 test("replaces verbose network block pages with a bounded engine error", async (t) => {
     const jobDir = await tempJob();
     t.after(() => fs.rm(jobDir, { recursive: true, force: true }));
