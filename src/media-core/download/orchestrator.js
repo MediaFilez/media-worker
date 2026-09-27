@@ -59,7 +59,7 @@ function publicFailure(rawUrl, attempts, outputType) {
         return "The source is an image. Choose image output and try again.";
     }
     if (source.instagram && /account authentication|cookies|login required/i.test(messages)) {
-        return "This Instagram post needs an authenticated session. Export fresh browser cookies with an Instagram session to MEDIA_COOKIES_FILE, then try again.";
+        return "Could not retrieve media from this source. Try another link or try again later.";
     }
     if (/HTTP (?:Error )?403|forbidden|blocked this server's network address/i.test(messages)) {
         return "This source blocked automated access (HTTP 403), and no enabled engine could extract its media. Try a direct media URL or another source.";
