@@ -85,6 +85,8 @@ pnpm start
 
 The API and Worker must use the same Redis URL, queue prefix, R2 bucket, and contract version. Active cancellation is delivered through a short-lived Redis control key and becomes an `AbortSignal` inside the runtime.
 
+Public CDN jobs use `delivery: "public"` in the version 1 job. Set `R2_PUBLIC_BUCKET` to a separate R2 bucket attached to a public custom domain. The Worker stores public files there with their detected media type and inline disposition; private jobs continue to use `R2_BUCKET`. Public jobs do not apply a Discord upload size limit unless the API request explicitly asks for processing. Keep retention and cache policy for the public bucket aligned with your deployment needs.
+
 Progress is written as JSON Lines to stderr. The final result is written to stdout.
 
 ## Storage

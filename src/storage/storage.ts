@@ -9,6 +9,6 @@ export interface StoredMedia {
 }
 
 export interface MediaStorage {
-    put(artifact: MediaArtifact, options?: { signal?: AbortSignal }): Promise<StoredMedia>;
+    put(artifact: MediaArtifact, options?: { signal?: AbortSignal; public?: boolean }): Promise<StoredMedia>;
     delete(key: string): Promise<void>;
 }

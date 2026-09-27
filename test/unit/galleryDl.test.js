@@ -8,6 +8,7 @@ test("caps gallery-dl before transfer and terminates option parsing", () => {
     const separator = args.indexOf("--");
 
     assert.deepEqual(args.slice(args.indexOf("--filesize-max"), args.indexOf("--filesize-max") + 2), ["--filesize-max", "12345"]);
+    assert.deepEqual(args.slice(args.indexOf("--sleep-retries"), args.indexOf("--sleep-retries") + 2), ["--sleep-retries", "0"]);
     assert.ok(args.indexOf("--filesize-max") < separator);
     assert.equal(args.at(separator + 1), rawUrl);
     assert.equal(separator, args.length - 2);

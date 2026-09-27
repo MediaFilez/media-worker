@@ -42,6 +42,38 @@ test("gives yt-dlp a private writable cookie copy", async (t) => {
     }
 });
 
+test("allows a second yt-dlp candidate to reuse an attempt directory", async (t) => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-ytdlp-retry-"));
+    const attemptDir = path.join(root, "attempt");
+    const originalCookies = path.join(root, "cookies.txt");
+    await fs.mkdir(attemptDir);
+    await fs.writeFile(originalCookies, "# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t0\tsession\tsecret\n");
+    t.after(async () => {
+        config.mediaCookiesFile = null;
+        await fs.rm(root, { recursive: true, force: true });
+    });
+
+    config.mediaCookiesFile = originalCookies;
+    await assert.rejects(() =>
+        downloadWithYtDlp("https://example.com/first", attemptDir, {
+            outputType: "image",
+            maxBytes: 1024 * 1024,
+            processRunner: async () => {
+                throw new Error("first candidate failed");
+            },
+        }),
+    );
+    await assert.doesNotReject(() =>
+        downloadWithYtDlp("https://example.com/second", attemptDir, {
+            outputType: "image",
+            maxBytes: 1024 * 1024,
+            processRunner: async () => {
+                await fs.writeFile(path.join(attemptDir, "result.png"), PNG);
+            },
+        }),
+    );
+});
+
 test("uses anonymous yt-dlp requests for ordinary YouTube links by default", async (t) => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-ytdlp-"));
     const attemptDir = path.join(root, "attempt");

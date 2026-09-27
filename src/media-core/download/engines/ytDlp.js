@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../../config.js";
@@ -92,7 +93,7 @@ function shouldUseCookies(rawUrl) {
 async function prepareCookieFile(attemptDir, rawUrl) {
     if (!config.mediaCookiesFile || !shouldUseCookies(rawUrl)) return null;
 
-    const cookieFile = path.join(attemptDir, ".yt-dlp-cookies.txt");
+    const cookieFile = path.join(attemptDir, `.yt-dlp-cookies-${crypto.randomUUID()}.txt`);
     const contents = await fs.readFile(config.mediaCookiesFile);
     await fs.writeFile(cookieFile, contents, { flag: "wx", mode: 0o600 });
     await fs.chmod(cookieFile, 0o600);

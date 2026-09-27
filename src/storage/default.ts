@@ -12,6 +12,7 @@ export function createDefaultStorage(): MediaStorage {
             accessKeyId: config.r2AccessKeyId,
             secretAccessKey: config.r2SecretAccessKey,
             bucket: config.r2Bucket,
+            publicBucket: config.r2PublicBucket,
         });
     }
     return new LocalStorageAdapter(config.storageDir);
