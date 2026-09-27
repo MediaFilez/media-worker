@@ -413,7 +413,7 @@ test("does not report an Instagram session requirement for another platform's em
     );
 });
 
-test("reports an authenticated session only for an Instagram login failure", async (t) => {
+test("does not expose Instagram authentication setup to users", async (t) => {
     const jobDir = await tempJob();
     t.after(() => fs.rm(jobDir, { recursive: true, force: true }));
 
@@ -430,7 +430,11 @@ test("reports an authenticated session only for an Instagram login failure", asy
                 ],
             ]),
         }),
-        /This Instagram post needs an authenticated session/,
+        (error) => {
+            assert.equal(error.message, "Could not retrieve media from this source. Try another link or try again later.");
+            assert.doesNotMatch(error.message, /cookies|MEDIA_COOKIES_FILE|authenticated session/i);
+            return true;
+        },
     );
 });
 
