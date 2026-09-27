@@ -69,6 +69,8 @@ export function galleryDlArgs(rawUrl, attemptDir, options = {}) {
         "--write-info-json",
         "--retries",
         String(config.galleryDlRetries),
+        "--sleep-retries",
+        "0",
         "--http-timeout",
         String(config.galleryDlHttpTimeoutSeconds),
         "--filesize-max",
