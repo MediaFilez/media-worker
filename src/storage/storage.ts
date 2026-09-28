@@ -2,6 +2,7 @@ import type { MediaArtifact } from "../media-core/types.js";
 
 export interface StoredMedia {
     key: string;
+    thumbnailKey?: string;
     sizeBytes: number;
     contentType: string | null;
     fileName: string;
