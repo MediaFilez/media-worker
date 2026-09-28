@@ -54,5 +54,22 @@ export async function executeDownloadJob(
 ): Promise<StoredMedia> {
     const artifact = await downloadAndProcess(job, jobDir, dependencies.core, context);
     await context.onProgress?.({ phase: "storing", detail: "Storing the completed artifact" });
-    return await dependencies.storage.put(artifact, { signal: context.signal, public: job.delivery === "public" });
+    const stored = await dependencies.storage.put(artifact, { signal: context.signal, public: job.delivery === "public" });
+    if (job.delivery !== "public" || artifact.mediaKind !== "video" || context.signal?.aborted) return stored;
+
+    try {
+        const thumbnail = await dependencies.core.processMedia(artifact, {
+            outputType: "thumbnail",
+            tempDir: jobDir,
+            maxOutputBytes: 2 * 1024 * 1024,
+            allowCompression: true,
+            signal: context.signal,
+        });
+        const storedThumbnail = await dependencies.storage.put(thumbnail, { signal: context.signal, public: true });
+        return { ...stored, thumbnailKey: storedThumbnail.key };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(JSON.stringify({ level: "warn", event: "media.thumbnail.failed", jobId: job.jobId, message }));
+        return stored;
+    }
 }
