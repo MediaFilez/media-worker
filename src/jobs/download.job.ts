@@ -61,6 +61,8 @@ export async function executeDownloadJob(
         const thumbnail = await dependencies.core.processMedia(artifact, {
             outputType: "thumbnail",
             tempDir: jobDir,
+            maxOutputBytes: 2 * 1024 * 1024,
+            allowCompression: true,
             signal: context.signal,
         });
         const storedThumbnail = await dependencies.storage.put(thumbnail, { signal: context.signal, public: true });

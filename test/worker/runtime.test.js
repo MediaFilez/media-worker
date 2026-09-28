@@ -79,6 +79,8 @@ test("stores a public video thumbnail without changing the original artifact", a
         },
         async processMedia(value, options) {
             assert.equal(options.outputType, "thumbnail");
+            assert.equal(options.maxOutputBytes, 2 * 1024 * 1024);
+            assert.equal(options.allowCompression, true);
             calls.push("thumbnail");
             return { ...value, fileName: "thumbnail.jpg", mime: "image/jpeg", mediaKind: "image", sizeBytes: 2 };
         },
