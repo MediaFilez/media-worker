@@ -4,8 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../../config.js";
 import { DownloadMethodError } from "../../utils/errors.js";
-import { ProcessExecutionError, runProcess } from "../../utils/process.js";
+import { ProcessExecutionError, runProcess, childEnvironment } from "../../utils/process.js";
 import { recoverArtifact } from "../artifact.js";
+import { withEngineProxy } from "../../utils/engineProxy.js";
+import { ytDlpFormatSelector } from "../videoQuality.js";
+import { copyCookiesForAttempt } from "../../utils/cookies.js";
 
 /**
  * Selects the gallery-dl executable path from configuration, a bundled binary, or the system PATH.
@@ -39,7 +42,7 @@ async function readMetadata(attemptDir) {
 
 function processMessage(error) {
     if (error?.cause?.code === "ENOENT") {
-        return "gallery-dl is unavailable. Run pnpm run tools:install, set GALLERY_DL_PATH, or use Docker.";
+        return "gallery-dl is unavailable. Set GALLERY_DL_PATH to an installed binary, or use the Worker Docker image.";
     }
     const lines = `${error?.stderr || ""}\n${error?.stdout || ""}`
         .split(/\r?\n/)
@@ -59,6 +62,13 @@ function processMessage(error) {
 export function galleryDlArgs(rawUrl, attemptDir, options = {}) {
     const maxBytes = options.maxBytes ?? config.maxDownloadBytes;
     const args = [
+        "--ignore-config",
+        "-o",
+        "extractor.proxy-env=false",
+        "-o",
+        `extractor.ytdl.format=${ytDlpFormatSelector(options.outputType ?? "video", options.targetBytes, options.maxHeight)}`,
+        "-o",
+        `downloader.ytdl.format=${ytDlpFormatSelector(options.outputType ?? "video", options.targetBytes, options.maxHeight)}`,
         "--no-input",
         "--no-colors",
         "--directory",
@@ -80,7 +90,7 @@ export function galleryDlArgs(rawUrl, attemptDir, options = {}) {
         "--",
         rawUrl,
     ];
-    if (config.mediaCookiesFile) args.unshift("--cookies", config.mediaCookiesFile);
+    if (options.cookieFile) args.unshift("--cookies", options.cookieFile);
     return args;
 }
 
@@ -94,15 +104,32 @@ export function galleryDlArgs(rawUrl, attemptDir, options = {}) {
  * @throws {DownloadMethodError} If gallery-dl fails or produces no playable file.
  */
 export async function downloadWithGalleryDl(rawUrl, attemptDir, options = {}) {
-    const args = galleryDlArgs(rawUrl, attemptDir, options);
+    const cookieFile = await copyCookiesForAttempt(config.mediaCookiesFile, attemptDir);
+    const args = galleryDlArgs(rawUrl, attemptDir, { ...options, cookieFile });
 
     let processError = null;
     try {
-        await runProcess(resolveGalleryDlPath(), args, {
-            timeoutMs: config.galleryDlTimeoutMs,
-            signal: options.signal,
-        });
+        await withEngineProxy(options.signal, (proxy, signal) =>
+            (options.processRunner ?? runProcess)(
+                resolveGalleryDlPath(),
+                [
+                    "--proxy",
+                    proxy,
+                    "-o",
+                    `extractor.ytdl.raw-options=${JSON.stringify({ proxy })}`,
+                    "-o",
+                    `downloader.ytdl.raw-options=${JSON.stringify({ proxy })}`,
+                    ...args,
+                ],
+                {
+                    env: childEnvironment(proxy),
+                    timeoutMs: config.galleryDlTimeoutMs,
+                    signal,
+                },
+            ),
+        );
     } catch (error) {
+        if (error?.stopFallback) throw error;
         if (error instanceof ProcessExecutionError && error.aborted)
             throw Object.assign(new Error("The download was cancelled."), { name: "AbortError" });
         processError = error;

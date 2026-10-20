@@ -1,14 +1,15 @@
 import fs from "node:fs/promises";
-import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../../config.js";
 import { DownloadMethodError, userError } from "../../utils/errors.js";
-import { ProcessExecutionError, runProcess } from "../../utils/process.js";
+import { ProcessExecutionError, runProcess, childEnvironment } from "../../utils/process.js";
 import { recoverArtifact } from "../artifact.js";
 import { formatBytes } from "../../utils/format.js";
 import { resolveFFmpegPaths } from "../../utils/ffmpeg.js";
 import { ytDlpFormatSelector } from "../videoQuality.js";
+import { withEngineProxy } from "../../utils/engineProxy.js";
+import { copyCookiesForAttempt } from "../../utils/cookies.js";
 
 export function resolveYtDlpPath() {
     if (config.ytdlpPath) return config.ytdlpPath;
@@ -93,11 +94,7 @@ function shouldUseCookies(rawUrl) {
 async function prepareCookieFile(attemptDir, rawUrl) {
     if (!config.mediaCookiesFile || !shouldUseCookies(rawUrl)) return null;
 
-    const cookieFile = path.join(attemptDir, `.yt-dlp-cookies-${crypto.randomUUID()}.txt`);
-    const contents = await fs.readFile(config.mediaCookiesFile);
-    await fs.writeFile(cookieFile, contents, { flag: "wx", mode: 0o600 });
-    await fs.chmod(cookieFile, 0o600);
-    return cookieFile;
+    return copyCookiesForAttempt(config.mediaCookiesFile, attemptDir);
 }
 
 /**
@@ -123,6 +120,10 @@ export async function downloadWithYtDlp(rawUrl, attemptDir, options = {}) {
     const args = [
         "--no-config",
         "--no-playlist",
+        "--playlist-items",
+        "1",
+        "--max-downloads",
+        "1",
         "--no-warnings",
         "--newline",
         "--windows-filenames",
@@ -163,18 +164,21 @@ export async function downloadWithYtDlp(rawUrl, attemptDir, options = {}) {
         args.push("--skip-download", "--write-thumbnail", "--convert-thumbnails", "jpg");
     } else {
         args.push("--format", ytDlpFormatSelector(outputType, options.targetBytes, options.maxHeight));
-        if (outputType !== "audio") args.push("--merge-output-format", "mp4");
     }
     args.push("--", rawUrl);
 
     let processError = null;
     try {
-        await (options.processRunner ?? runProcess)(resolveYtDlpPath(), args, {
-            timeoutMs: config.ytdlpTimeoutMs,
-            signal: options.signal,
-            onStdoutLine: progressHandler(options),
-        });
+        await withEngineProxy(options.signal, (proxy, signal) =>
+            (options.processRunner ?? runProcess)(resolveYtDlpPath(), ["--proxy", proxy, ...args], {
+                env: childEnvironment(proxy),
+                timeoutMs: config.ytdlpTimeoutMs,
+                signal,
+                onStdoutLine: progressHandler(options),
+            }),
+        );
     } catch (error) {
+        if (error?.stopFallback) throw error;
         if (error instanceof ProcessExecutionError && error.aborted)
             throw Object.assign(new Error("The download was cancelled."), { name: "AbortError" });
         processError = error;

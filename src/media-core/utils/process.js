@@ -1,6 +1,39 @@
 import { spawn } from "node:child_process";
+import { acquireProcess, jobResources } from "./resources.js";
+import { config } from "../config.js";
 
 const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
+
+// Media tools need platform paths and certificate settings, not worker storage or Redis credentials.
+export function childEnvironment(proxy, source = process.env) {
+    const allowed = new Set([
+        "path",
+        "pathext",
+        "systemroot",
+        "windir",
+        "comspec",
+        "temp",
+        "tmp",
+        "tmpdir",
+        "home",
+        "userprofile",
+        "homedrive",
+        "homepath",
+        "lang",
+        "lc_all",
+        "ssl_cert_file",
+        "ssl_cert_dir",
+        "requests_ca_bundle",
+        "curl_ca_bundle",
+    ]);
+    const env = Object.fromEntries(Object.entries(source).filter(([name]) => allowed.has(name.toLowerCase())));
+    if (proxy) {
+        for (const name of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]) env[name] = proxy;
+        env.NO_PROXY = "";
+        env.no_proxy = "";
+    }
+    return env;
+}
 
 export class ProcessExecutionError extends Error {
     constructor(command, result, options = {}) {
@@ -35,7 +68,7 @@ function emitLines(buffer, chunk, callback) {
 }
 
 function stopProcess(child) {
-    if (!child.pid || child.exitCode !== null) return;
+    if (!child.pid) return;
     if (process.platform === "win32") {
         const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
             windowsHide: true,
@@ -51,62 +84,80 @@ function stopProcess(child) {
     }
 }
 
-export function runProcess(command, args, options = {}) {
-    return new Promise((resolve, reject) => {
-        const child = spawn(command, args, {
-            cwd: options.cwd,
-            env: options.env ?? process.env,
-            shell: false,
-            windowsHide: true,
-            detached: process.platform !== "win32",
-            stdio: ["ignore", "pipe", "pipe"],
-        });
+export async function runProcess(command, args, options = {}) {
+    const state = jobResources();
+    const signal = state ? AbortSignal.any([state.signal, ...(options.signal ? [options.signal] : [])]) : options.signal;
+    signal?.throwIfAborted();
+    const release = await acquireProcess(signal);
+    try {
+        return await new Promise((resolve, reject) => {
+            const limited = state && process.platform === "linux" && config.linuxProcessLimits;
+            const child = spawn(
+                limited ? "prlimit" : command,
+                limited ? [`--fsize=${state.maxTempBytes}`, `--cpu=${config.processCpuSeconds}`, "--", command, ...args] : args,
+                {
+                    cwd: options.cwd,
+                    env: options.env ?? childEnvironment(),
+                    shell: false,
+                    windowsHide: true,
+                    detached: process.platform !== "win32",
+                    stdio: ["ignore", "pipe", "pipe"],
+                },
+            );
+            if (state) {
+                const closed = new Promise((resolve) => child.once("close", resolve));
+                state.children.add(closed);
+                closed.then(() => state.children.delete(closed));
+            }
 
-        let stdout = "";
-        let stderr = "";
-        let stdoutRemainder = "";
-        let stderrRemainder = "";
-        let timedOut = false;
-        let aborted = false;
+            let stdout = "";
+            let stderr = "";
+            let stdoutRemainder = "";
+            let stderrRemainder = "";
+            let timedOut = false;
+            let aborted = false;
 
-        const timeout = options.timeoutMs
-            ? setTimeout(() => {
-                  timedOut = true;
-                  stopProcess(child);
-              }, options.timeoutMs)
-            : null;
+            const timeout = options.timeoutMs
+                ? setTimeout(() => {
+                      timedOut = true;
+                      stopProcess(child);
+                  }, options.timeoutMs)
+                : null;
 
-        const abort = () => {
-            aborted = true;
-            stopProcess(child);
-        };
-        options.signal?.addEventListener("abort", abort, { once: true });
-        if (options.signal?.aborted) abort();
+            const abort = () => {
+                aborted = true;
+                stopProcess(child);
+            };
+            signal?.addEventListener("abort", abort, { once: true });
+            if (signal?.aborted) abort();
 
-        child.stdout.on("data", (chunk) => {
-            const text = chunk.toString();
-            stdout = appendCapped(stdout, text);
-            if (options.onStdoutLine) stdoutRemainder = emitLines(stdoutRemainder, text, options.onStdoutLine);
-        });
-        child.stderr.on("data", (chunk) => {
-            const text = chunk.toString();
-            stderr = appendCapped(stderr, text);
-            if (options.onStderrLine) stderrRemainder = emitLines(stderrRemainder, text, options.onStderrLine);
-        });
+            child.stdout.on("data", (chunk) => {
+                const text = chunk.toString();
+                stdout = appendCapped(stdout, text);
+                if (options.onStdoutLine) stdoutRemainder = emitLines(stdoutRemainder, text, options.onStdoutLine);
+            });
+            child.stderr.on("data", (chunk) => {
+                const text = chunk.toString();
+                stderr = appendCapped(stderr, text);
+                if (options.onStderrLine) stderrRemainder = emitLines(stderrRemainder, text, options.onStderrLine);
+            });
 
-        child.once("error", (error) => {
-            if (timeout) clearTimeout(timeout);
-            options.signal?.removeEventListener("abort", abort);
-            reject(new ProcessExecutionError(command, { exitCode: null, stdout, stderr }, { timedOut, aborted, cause: error }));
+            child.once("error", (error) => {
+                if (timeout) clearTimeout(timeout);
+                signal?.removeEventListener("abort", abort);
+                reject(new ProcessExecutionError(command, { exitCode: null, stdout, stderr }, { timedOut, aborted, cause: error }));
+            });
+            child.once("close", (exitCode) => {
+                if (timeout) clearTimeout(timeout);
+                signal?.removeEventListener("abort", abort);
+                if (stdoutRemainder && options.onStdoutLine) options.onStdoutLine(stdoutRemainder);
+                if (stderrRemainder && options.onStderrLine) options.onStderrLine(stderrRemainder);
+                const result = { exitCode, stdout, stderr };
+                if (exitCode === 0 && !timedOut && !aborted) resolve(result);
+                else reject(new ProcessExecutionError(command, result, { timedOut, aborted }));
+            });
         });
-        child.once("close", (exitCode) => {
-            if (timeout) clearTimeout(timeout);
-            options.signal?.removeEventListener("abort", abort);
-            if (stdoutRemainder && options.onStdoutLine) options.onStdoutLine(stdoutRemainder);
-            if (stderrRemainder && options.onStderrLine) options.onStderrLine(stderrRemainder);
-            const result = { exitCode, stdout, stderr };
-            if (exitCode === 0 && !timedOut && !aborted) resolve(result);
-            else reject(new ProcessExecutionError(command, result, { timedOut, aborted }));
-        });
-    });
+    } finally {
+        release();
+    }
 }

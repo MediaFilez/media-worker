@@ -9,6 +9,7 @@ import { formatBytes } from "./format.js";
 import { userError } from "./errors.js";
 import { log } from "./logger.js";
 import { ProcessExecutionError, runProcess } from "./process.js";
+import { jobResources } from "./resources.js";
 
 const execFileAsync = promisify(execFile);
 let ffmpegAvailability = null;
@@ -55,19 +56,18 @@ function missingFfmpegError(binary) {
 async function runBinary(binary, label, args, options = {}) {
     const timeout = options.timeoutMs ?? config.ffmpegTimeoutMs;
     try {
-        const { stdout, stderr } = await execFileAsync(binary, args, {
-            timeout,
+        const { stdout, stderr } = await runProcess(binary, args, {
+            timeoutMs: timeout,
             signal: options.signal,
-            maxBuffer: 20 * 1024 * 1024,
-            windowsHide: true,
         });
         return { stdout, stderr };
     } catch (error) {
+        if (error.aborted) throw options.signal?.reason ?? Object.assign(new Error("Processing cancelled."), { name: "AbortError" });
         if (error.name === "AbortError" || error.code === "ABORT_ERR") throw error;
-        if (error.killed || error.signal === "SIGTERM") {
+        if (error.timedOut) {
             throw userError(`${label} timed out while processing this file.`, "PROCESS_TIMEOUT");
         }
-        if (error.code === "ENOENT") {
+        if (error.cause?.code === "ENOENT") {
             throw missingFfmpegError(label);
         }
         throw new Error(`${label} failed: ${error.stderr || error.message}`);
@@ -76,7 +76,7 @@ async function runBinary(binary, label, args, options = {}) {
 
 export async function runFFmpeg(args, options = {}) {
     if (!options.onProgress) {
-        return await runBinary(resolveFFmpegPaths().ffmpeg, "FFmpeg", ["-hide_banner", ...args], options);
+        return await runBinary(resolveFFmpegPaths().ffmpeg, "FFmpeg", ["-hide_banner", "-protocol_whitelist", "file,pipe", ...args], options);
     }
 
     const progress = {};
@@ -100,14 +100,20 @@ export async function runFFmpeg(args, options = {}) {
     };
 
     try {
-        return await runProcess(resolveFFmpegPaths().ffmpeg, ["-hide_banner", "-nostats", "-progress", "pipe:1", ...args], {
-            timeoutMs: options.timeoutMs ?? config.ffmpegTimeoutMs,
-            signal: options.signal,
-            onStdoutLine: reportProgress,
-        });
+        return await runProcess(
+            resolveFFmpegPaths().ffmpeg,
+            ["-hide_banner", "-protocol_whitelist", "file,pipe", "-nostats", "-progress", "pipe:1", ...args],
+            {
+                timeoutMs: options.timeoutMs ?? config.ffmpegTimeoutMs,
+                signal: options.signal,
+                onStdoutLine: reportProgress,
+            },
+        );
     } catch (error) {
         if (error instanceof ProcessExecutionError && error.aborted) {
-            throw Object.assign(new Error("FFmpeg was cancelled."), { name: "AbortError" });
+            throw (
+                options.signal?.reason ?? jobResources()?.signal.reason ?? Object.assign(new Error("FFmpeg was cancelled."), { name: "AbortError" })
+            );
         }
         if (error instanceof ProcessExecutionError && error.timedOut) {
             throw userError("FFmpeg timed out while processing this file.", "PROCESS_TIMEOUT");
@@ -118,7 +124,7 @@ export async function runFFmpeg(args, options = {}) {
 }
 
 async function runFFprobe(args, options = {}) {
-    const { stdout } = await runBinary(resolveFFmpegPaths().ffprobe, "FFprobe", ["-v", "quiet", ...args], {
+    const { stdout } = await runBinary(resolveFFmpegPaths().ffprobe, "FFprobe", ["-v", "quiet", "-protocol_whitelist", "file,pipe", ...args], {
         ...options,
         timeoutMs: 30_000,
     });
@@ -126,6 +132,22 @@ async function runFFprobe(args, options = {}) {
 }
 
 export async function getMediaInfo(inputPath, options = {}) {
+    options.signal?.throwIfAborted();
+    const cache = jobResources()?.mediaInfoCache;
+    if (!cache) return inspectMediaInfo(inputPath, options);
+    const stat = await fs.stat(inputPath, { bigint: true });
+    const key = `${path.resolve(inputPath)}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+    let pending = cache.get(key);
+    if (!pending) {
+        if (cache.size >= 64) cache.clear();
+        pending = inspectMediaInfo(inputPath, options).then(Object.freeze);
+        cache.set(key, pending);
+        pending.catch(() => cache.delete(key));
+    }
+    return pending;
+}
+
+async function inspectMediaInfo(inputPath, options) {
     const raw = await runFFprobe(["-print_format", "json", "-show_format", "-show_streams", inputPath], options);
 
     const data = JSON.parse(raw);
@@ -144,6 +166,9 @@ export async function getMediaInfo(inputPath, options = {}) {
         height: Number.parseInt(videoStream?.height || "0", 10),
         videoBitrate: Number.parseInt(videoStream?.bit_rate || "0", 10),
         audioBitrate: Number.parseInt(audioStream?.bit_rate || "0", 10),
+        audioCodec: audioStream?.codec_name || null,
+        audioSampleRate: Number.parseInt(audioStream?.sample_rate || "0", 10),
+        audioChannels: audioStream?.channels || 0,
         formatName: format.format_name || "unknown",
     };
 }
@@ -176,6 +201,18 @@ function audioBitrateForTarget(duration, targetSizeBytes) {
     const availableBitsPerSecond = Math.floor((targetSizeBytes * 8 * 0.9) / duration);
     const kbps = Math.floor(availableBitsPerSecond / 1000);
     return Math.min(192, Math.max(48, kbps));
+}
+
+export async function extractOriginalAudio(inputPath, outputDir, options = {}) {
+    const info = await getMediaInfo(inputPath, options);
+    if (!info.hasAudio) throw userError("The downloaded media does not contain an audio stream.", "NO_AUDIO");
+    const containers = { aac: "m4a", alac: "m4a", opus: "opus", vorbis: "ogg", mp3: "mp3", mp2: "mp2", flac: "flac", ac3: "ac3", eac3: "eac3" };
+    const extension = containers[info.audioCodec] || (info.audioCodec?.startsWith("pcm_") ? "wav" : null);
+    if (!extension) throw userError("This audio codec cannot be extracted losslessly. Request mp3 conversion explicitly.", "UNSUPPORTED_AUDIO_CODEC");
+    let outputPath = path.join(outputDir, `extracted-audio.${extension}`);
+    if (path.resolve(outputPath) === path.resolve(inputPath)) outputPath = path.join(outputDir, `extracted-audio-copy.${extension}`);
+    await runFFmpeg(["-i", inputPath, "-map", "0:a:0", "-vn", "-c:a", "copy", "-y", outputPath], options);
+    return outputPath;
 }
 
 /**

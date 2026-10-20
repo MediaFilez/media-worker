@@ -1,13 +1,27 @@
 services:
     worker:
         build: .
-        image: mediafilez-worker:prod
+        image: ${MEDIA_WORKER_IMAGE:-mediafilez-worker:prod}
         container_name: media-worker
         env_file:
             - .env
         restart: unless-stopped
+        init: true
+        security_opt:
+            - no-new-privileges:true
+        cap_drop:
+            - ALL
+        mem_limit: 4g
+        cpus: 2
+        pids_limit: 128
+        stop_grace_period: 45s
         volumes:
-            - ${MEDIA_COOKIES_HOST_PATH:?Set MEDIA_COOKIES_HOST_PATH to the private host cookie file}:/run/secrets/cookies.txt:ro
+            - type: bind
+              source: ${MEDIA_COOKIES_HOST_PATH:?Set MEDIA_COOKIES_HOST_PATH to the private host cookie file}
+              target: /run/secrets/cookies.txt
+              read_only: true
+              bind:
+                  create_host_path: false
         networks:
             - api
             - engines

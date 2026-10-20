@@ -9,17 +9,11 @@ export function preferredVideoHeight(targetBytes) {
 }
 
 export function ytDlpFormatSelector(outputType, targetBytes, requestedHeight = null) {
-    if (outputType === "audio") return "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio";
+    if (outputType === "audio") return "ba/b";
 
-    const fallback = "bv*[vcodec^=avc1]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b";
+    const fallback = "bv*+ba/b";
     const height = requestedHeight || preferredVideoHeight(targetBytes);
     if (!height) return fallback;
 
-    return [
-        `bv[height<=${height}][vcodec^=avc1]+ba[ext=m4a]`,
-        `b[height<=${height}][ext=mp4]`,
-        `bv[height<=${height}]+ba`,
-        `b[height<=${height}]`,
-        fallback,
-    ].join("/");
+    return [`bv*[height<=${height}]+ba`, `b[height<=${height}]`, fallback].join("/");
 }

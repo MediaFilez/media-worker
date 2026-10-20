@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { config, MB } from "../../src/media-core/config.js";
+import { publicFetch } from "../../src/media-core/utils/publicFetch.js";
 import {
     cobaltRequestPayload,
     cobaltRequestHeaders,
@@ -18,11 +19,80 @@ import {
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 
 test("caps Cobalt video quality for small upload targets", () => {
+    const best = cobaltRequestPayload("https://example.com/video", "video");
+    assert.equal(best.youtubeVideoCodec, "vp9");
+    assert.equal(best.audioFormat, "best");
+    assert.equal(best.youtubeBetterAudio, true);
+    assert.equal(cobaltRequestPayload("https://example.com/video", "video", undefined, 720).videoQuality, "720");
     assert.equal(cobaltRequestPayload("https://example.com/video", "auto", 10 * MB).videoQuality, "360");
     assert.equal(cobaltRequestPayload("https://example.com/video", "video", 50 * MB).videoQuality, "480");
     assert.equal(cobaltRequestPayload("https://example.com/video", "video", 100 * MB).videoQuality, "720");
     assert.equal(cobaltRequestPayload("https://example.com/video", "video", 500 * MB).videoQuality, "max");
     assert.equal(cobaltRequestPayload("https://example.com/audio", "audio", 10 * MB).videoQuality, "max");
+});
+
+test("Cobalt configured instance cannot redirect to another private port", async (t) => {
+    resetCobaltEndpointHealth();
+    let privateRequests = 0;
+    const internal = http.createServer((_req, res) => {
+        privateRequests++;
+        res.end(PNG);
+    });
+    const endpoint = http.createServer((req, res) => {
+        res.setHeader("content-type", "application/json");
+        if (req.method === "POST") res.end(JSON.stringify({ status: "tunnel", url: `http://127.0.0.1:${endpoint.address().port}/tunnel` }));
+        else res.writeHead(302, { location: `http://127.0.0.1:${internal.address().port}/private.png` }).end();
+    });
+    await Promise.all([
+        new Promise((resolve) => internal.listen(0, "127.0.0.1", resolve)),
+        new Promise((resolve) => endpoint.listen(0, "127.0.0.1", resolve)),
+    ]);
+    const previous = config.cobaltApiEndpoints;
+    const previousDirectory = config.cobaltDirectoryEnabled;
+    config.cobaltApiEndpoints = [`http://127.0.0.1:${endpoint.address().port}`];
+    config.cobaltDirectoryEnabled = false;
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-cobalt-redirect-"));
+    t.after(async () => {
+        config.cobaltApiEndpoints = previous;
+        config.cobaltDirectoryEnabled = previousDirectory;
+        resetCobaltEndpointHealth();
+        endpoint.closeAllConnections();
+        internal.closeAllConnections();
+        await Promise.all([new Promise((resolve) => endpoint.close(resolve)), new Promise((resolve) => internal.close(resolve))]);
+        await fs.rm(dir, { recursive: true, force: true });
+    });
+    await assert.rejects(downloadWithCobalt("https://example.com/", dir, { outputType: "image" }), /unsafe media URL/);
+    assert.equal(privateRequests, 0);
+});
+
+test("Cobalt POST redirects never forward the API credential", async (t) => {
+    resetCobaltEndpointHealth();
+    let privateRequests = 0;
+    const internal = http.createServer((_req, res) => {
+        privateRequests++;
+        res.end("{}");
+    });
+    const endpoint = http.createServer((_req, res) => res.writeHead(307, { location: `http://127.0.0.1:${internal.address().port}/` }).end());
+    await Promise.all([
+        new Promise((resolve) => internal.listen(0, "127.0.0.1", resolve)),
+        new Promise((resolve) => endpoint.listen(0, "127.0.0.1", resolve)),
+    ]);
+    const previous = config.cobaltApiEndpoints;
+    const previousDirectory = config.cobaltDirectoryEnabled;
+    config.cobaltApiEndpoints = [`http://127.0.0.1:${endpoint.address().port}`];
+    config.cobaltDirectoryEnabled = false;
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-cobalt-post-"));
+    t.after(async () => {
+        config.cobaltApiEndpoints = previous;
+        config.cobaltDirectoryEnabled = previousDirectory;
+        resetCobaltEndpointHealth();
+        endpoint.closeAllConnections();
+        internal.closeAllConnections();
+        await Promise.all([new Promise((resolve) => endpoint.close(resolve)), new Promise((resolve) => internal.close(resolve))]);
+        await fs.rm(dir, { recursive: true, force: true });
+    });
+    await assert.rejects(downloadWithCobalt("https://example.com/", dir), /endpoint redirects are not allowed/);
+    assert.equal(privateRequests, 0);
 });
 
 test("selects Cobalt directory endpoints that passed tests for the requested service", () => {
@@ -107,6 +177,7 @@ test("does not trust private endpoints supplied by the Cobalt directory", async 
     t.after(() => fs.rm(attemptDir, { recursive: true, force: true }));
     await assert.rejects(
         downloadWithCobalt("https://instagram.com/p/example/", attemptDir, {
+            fetchDirectory: (url, init) => publicFetch(url, init, { trustedHosts: ["127.0.0.1"] }),
             outputType: "image",
             maxBytes: 1024 * 1024,
         }),
@@ -167,6 +238,7 @@ test("rechecks directory endpoint DNS when opening the socket", async (t) => {
     t.after(() => fs.rm(attemptDir, { recursive: true, force: true }));
     await assert.rejects(
         downloadWithCobalt("https://instagram.com/p/example/", attemptDir, {
+            fetchDirectory: (url, init) => publicFetch(url, init, { trustedHosts: ["127.0.0.1"] }),
             outputType: "image",
             maxBytes: 1024 * 1024,
         }),

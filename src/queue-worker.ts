@@ -1,47 +1,56 @@
-import { UnrecoverableError, Worker, type ConnectionOptions, type Job } from "bullmq";
+import { Worker, type ConnectionOptions } from "bullmq";
 import { Redis } from "ioredis";
 import { config } from "./media-core/config.js";
 import { WorkerRuntime } from "./runtime.js";
-import { parseApiDownloadJob } from "./jobs/api-contract.js";
+import { createQueueProcessor } from "./queue-processor.js";
+import { redactSensitive } from "./media-core/utils/errors.js";
+import { shutdownQueueWorker } from "./queue-shutdown.js";
+import { randomUUID } from "node:crypto";
+import { validateCookieFile } from "./startup.js";
 
 if (!config.redisUrl) throw new Error("REDIS_URL is required to run the queue worker.");
+await validateCookieFile(config.mediaCookiesFile);
 const connection = redisConnection(config.redisUrl);
-const control = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
+const control = new Redis(config.redisUrl, { maxRetriesPerRequest: 1, enableOfflineQueue: false, commandTimeout: 2_000, lazyConnect: true });
 const runtime = new WorkerRuntime({ maxAttempts: 1 });
+const processor = createQueueProcessor(runtime, control);
 
-const worker = new Worker(
-    "download",
-    async (job: Job) => {
-        const { payload, runtimeJob } = parseApiDownloadJob(job.data);
-        const controller = new AbortController();
-        const cancelKey = `${config.queuePrefix}:cancel:${payload.jobId}`;
-        const checkCancellation = async () => {
-            if ((await control.get(cancelKey)) !== "1") return;
-            controller.abort(Object.assign(new Error("Job cancelled."), { name: "AbortError" }));
-        };
-        await checkCancellation();
-        const poll = setInterval(() => void checkCancellation().catch((error: unknown) => controller.abort(error)), 500);
-        try {
-            try {
-                return await runtime.execute(runtimeJob, { signal: controller.signal, onProgress: (update) => job.updateProgress(update) });
-            } catch (error) {
-                if (controller.signal.aborted) throw new UnrecoverableError("Job cancelled.");
-                throw error;
-            }
-        } finally {
-            clearInterval(poll);
-            if (!controller.signal.aborted) await control.del(cancelKey);
-        }
-    },
-    { connection, prefix: config.queuePrefix, concurrency: config.workerConcurrency },
+const worker = new Worker("download", processor.processJob, { connection, prefix: config.queuePrefix, concurrency: config.workerConcurrency });
+
+worker.on("failed", (job, error) => console.error(JSON.stringify({ level: "error", jobId: job?.id, message: redactSensitive(error.message) })));
+worker.on("error", (error) => console.error(JSON.stringify({ level: "error", message: redactSensitive(error.message) })));
+control.on("error", (error) =>
+    console.error(JSON.stringify({ level: "error", event: "redis.control.failed", message: redactSensitive(error.message) })),
 );
+await control.connect();
+await worker.waitUntilReady();
+const workerId = randomUUID();
+const heartbeatKey = `${config.queuePrefix}:workers`;
+const heartbeat = async () => {
+    await control.zadd(heartbeatKey, Date.now(), workerId);
+    await control.zremrangebyscore(heartbeatKey, "-inf", Date.now() - 120_000);
+    await control.expire(heartbeatKey, 120);
+};
+await heartbeat();
+const heartbeatTimer = setInterval(
+    () =>
+        void heartbeat().catch(() => {
+            console.error(JSON.stringify({ level: "error", event: "worker.heartbeat.failed" }));
+        }),
+    15_000,
+);
+heartbeatTimer.unref();
 
-worker.on("failed", (job, error) => console.error(JSON.stringify({ level: "error", jobId: job?.id, message: error.message })));
-worker.on("error", (error) => console.error(JSON.stringify({ level: "error", message: error.message })));
-
-async function shutdown() {
-    await worker.close();
-    await control.quit();
+let shuttingDown: Promise<void> | undefined;
+function shutdown() {
+    clearInterval(heartbeatTimer);
+    shuttingDown ??= shutdownQueueWorker(worker, control, processor, config.shutdownGraceMs).catch((error: unknown) => {
+        console.error(JSON.stringify({ level: "error", event: "worker.shutdown.failed", message: redactSensitive(String(error)) }));
+        // A disconnected Redis acknowledgement may hold BullMQ open indefinitely.
+        // The process supervisor restarts it; stable storage identity protects redelivery.
+        process.exit(1);
+    });
+    return shuttingDown;
 }
 process.once("SIGINT", () => void shutdown());
 process.once("SIGTERM", () => void shutdown());

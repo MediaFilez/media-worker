@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
+import dns from "node:dns";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { before, mock } from "node:test";
 import { downloadMedia } from "../../src/media-core/download/orchestrator.js";
 import { DownloadMethodError } from "../../src/media-core/utils/errors.js";
 import { checkFFmpeg, runFFmpeg } from "../../src/media-core/utils/ffmpeg.js";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+
+before(() => {
+    mock.method(dns.promises, "lookup", async () => [{ address: "93.184.216.34", family: 4 }]);
+});
 
 async function tempJob() {
     return await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-test-"));
@@ -326,9 +331,64 @@ test("does not start an engine after job cancellation", async (t) => {
                 ],
             ]),
         }),
-        /timed out/,
+        { name: "AbortError" },
     );
     assert.equal(called, false);
+});
+
+test("preserves cancellation reason and never starts an engine after resolving progress cancels", async (t) => {
+    const jobDir = await tempJob();
+    t.after(() => fs.rm(jobDir, { recursive: true, force: true }));
+    const controller = new AbortController();
+    const reason = new DOMException("explicit user cancellation", "AbortError");
+    let called = false;
+    await assert.rejects(
+        downloadMedia("https://example.com/post", jobDir, {
+            signal: controller.signal,
+            outputType: "image",
+            plan: ["engine"],
+            engines: new Map([
+                [
+                    "engine",
+                    async () => {
+                        called = true;
+                    },
+                ],
+            ]),
+            onStatus() {
+                controller.abort(reason);
+            },
+        }),
+        (error) => error === reason,
+    );
+    assert.equal(called, false);
+});
+
+test("rejects forged image content before fallback and cleans its attempt files", async (t) => {
+    const jobDir = await tempJob();
+    t.after(() => fs.rm(jobDir, { recursive: true, force: true }));
+    const source = path.join(jobDir, "valid.png");
+    await fs.writeFile(source, PNG);
+    const calls = [];
+    const result = await downloadMedia("https://example.com/post", jobDir, {
+        outputType: "auto",
+        plan: ["forged", "fallback"],
+        engines: new Map([
+            [
+                "forged",
+                async (_url, directory) => {
+                    calls.push("forged");
+                    const filePath = path.join(directory, "forged.jpg");
+                    await fs.writeFile(filePath, "<html>not media</html>");
+                    return { filePath, fileName: "forged.jpg" };
+                },
+            ],
+            ["fallback", fileEngine(source, "fallback", calls)],
+        ]),
+    });
+    assert.deepEqual(calls, ["forged", "fallback"]);
+    assert.equal(result.method, "fallback");
+    await assert.rejects(fs.access(path.join(jobDir, "attempt-01-forged")), { code: "ENOENT" });
 });
 
 test("falls back when one engine reaches its own timeout", async (t) => {
@@ -389,6 +449,25 @@ test("does not misreport a generic HTTP 403 as missing account cookies", async (
             engines,
         }),
         (error) => /blocked automated access/.test(error.message) && !/cookies/i.test(error.message),
+    );
+});
+
+test("reports an upstream IP block without blaming missing cookies", async (t) => {
+    const jobDir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-ip-block-"));
+    t.after(() => fs.rm(jobDir, { recursive: true, force: true }));
+    await assert.rejects(
+        downloadMedia("https://www.tiktok.com/@fixture/video/1", jobDir, {
+            plan: ["blocked"],
+            engines: new Map([
+                [
+                    "blocked",
+                    async () => {
+                        throw new DownloadMethodError("blocked", "Your IP address is blocked from accessing this post");
+                    },
+                ],
+            ]),
+        }),
+        (error) => /blocked automated access from the worker's network address/.test(error.message) && !/cookies/i.test(error.message),
     );
 });
 

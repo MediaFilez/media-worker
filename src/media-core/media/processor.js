@@ -3,11 +3,13 @@ import path from "node:path";
 import { describeFile, makeSafeFileName } from "../utils/files.js";
 import { formatBytes } from "../utils/format.js";
 import { userError } from "../utils/errors.js";
+import { validateArtifact } from "../download/artifact.js";
 import {
     assertSafeMediaFile,
     compressImage,
     compressVideo,
     extractAudio,
+    extractOriginalAudio,
     extractThumbnail,
     getMediaInfo,
     requireFFmpeg,
@@ -76,7 +78,8 @@ export async function processMedia(download, options) {
                     ["-i", download.filePath, "-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", "-y", outputPath],
                     { signal },
                 );
-            } catch {
+            } catch (error) {
+                signal?.throwIfAborted();
                 await runFFmpeg(
                     [
                         "-i",
@@ -107,12 +110,24 @@ export async function processMedia(download, options) {
     if (outputType === "audio") {
         const extension = (download.extension || path.extname(download.fileName).slice(1)).toLowerCase();
         const canSendOriginal = download.isAudioOnly || download.mediaKind === "audio";
-        const requiresMp3 = format === "mp3";
-        if (canSendOriginal && !requiresMp3 && (!maxOutputBytes || download.sizeBytes <= maxOutputBytes)) {
+        const requiresMp3 = format === "mp3" && extension !== "mp3";
+        if (!canSendOriginal && format === "original") {
+            await requireFFmpeg("lossless audio extraction");
+            await onStatus?.({ phase: "processing", detail: "Extracting the original audio stream" });
+            outputPath = await extractOriginalAudio(download.filePath, tempDir, { signal });
+            outputName = path.basename(outputPath);
+            note = "extracted the original audio stream without re-encoding";
+            if (maxOutputBytes && (await fs.stat(outputPath)).size > maxOutputBytes) {
+                if (!allowCompression) throw userError("The original audio exceeds the requested output limit.", "FILE_TOO_LARGE");
+                outputPath = await extractAudio(outputPath, tempDir, Math.floor(maxOutputBytes * 0.98), { signal, outputFileName: "fit-audio.mp3" });
+                outputName = "fit-audio.mp3";
+                note = "transcoded to fit the requested size";
+            }
+        } else if (canSendOriginal && !requiresMp3 && (!maxOutputBytes || download.sizeBytes <= maxOutputBytes)) {
             outputName = makeSafeFileName(download.fileName, "audio", extension || "m4a");
             note = "downloaded as audio";
         } else {
-            if (canSendOriginal && !allowCompression) {
+            if (canSendOriginal && maxOutputBytes && download.sizeBytes > maxOutputBytes && !allowCompression) {
                 throw userError(
                     `The audio is ${formatBytes(download.sizeBytes)}, above the ${formatBytes(maxOutputBytes)} output limit.`,
                     "FILE_TOO_LARGE",
@@ -128,7 +143,11 @@ export async function processMedia(download, options) {
                 outputFileName: canSendOriginal ? "fit-audio.mp3" : "audio.mp3",
             });
             outputName = canSendOriginal ? "fit-audio.mp3" : "audio.mp3";
-            note = canSendOriginal ? "transcoded to fit the requested size" : "extracted as MP3";
+            note = canSendOriginal
+                ? maxOutputBytes && download.sizeBytes > maxOutputBytes
+                    ? "transcoded to fit the requested size"
+                    : "converted to MP3"
+                : "extracted as MP3";
         }
     }
 
@@ -170,7 +189,14 @@ export async function processMedia(download, options) {
         }
     }
 
-    const file = await describeFile(outputPath, outputName, outputType);
+    signal?.throwIfAborted();
+    const changed = path.resolve(outputPath) !== path.resolve(download.filePath);
+    const file = changed
+        ? await validateArtifact(outputPath, { preferredName: outputName, outputType, maxBytes: maxOutputBytes ?? undefined, signal })
+        : await describeFile(outputPath, outputName, outputType);
+    if (changed && (["image", "thumbnail"].includes(outputType) ? file.mediaKind !== "image" : outputType === "audio" && !file.isAudioOnly)) {
+        throw userError("Processing produced the wrong media type.", "WRONG_MEDIA_TYPE", { stopFallback: true });
+    }
     ensureFits(file, maxOutputBytes, outputType);
     return { ...file, note };
 }

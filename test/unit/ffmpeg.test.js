@@ -5,6 +5,102 @@ import path from "node:path";
 import test from "node:test";
 import { processMedia } from "../../src/media-core/media/processor.js";
 import { checkFFmpeg, compressImage, extractThumbnail, getMediaInfo, runFFmpeg } from "../../src/media-core/utils/ffmpeg.js";
+import { withJobResources, jobResources } from "../../src/media-core/utils/resources.js";
+import { validateArtifact } from "../../src/media-core/download/artifact.js";
+
+test("original audio extraction preserves encoded AAC packets and sample rate", async (t) => {
+    if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-original-audio-"));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    const input = path.join(dir, "source.mp4");
+    await runFFmpeg([
+        "-f",
+        "lavfi",
+        "-i",
+        "color=s=64x64:d=0.4",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=duration=0.4:sample_rate=48000",
+        "-shortest",
+        "-c:v",
+        "libx264",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "256k",
+        "-y",
+        input,
+    ]);
+    const artifact = await validateArtifact(input, { outputType: "video" });
+    const output = await processMedia(artifact, { outputType: "audio", format: "original", tempDir: dir });
+    const info = await getMediaInfo(output.filePath);
+    assert.equal(info.hasVideo, false);
+    assert.equal(info.audioCodec, "aac");
+    assert.equal(info.audioSampleRate, 48000);
+    const packets = async (file) =>
+        (await runFFmpeg(["-i", file, "-map", "0:a:0", "-c:a", "copy", "-f", "hash", "-hash", "sha256", "-"])).stdout.trim();
+    assert.equal(await packets(output.filePath), await packets(input));
+    assert.match(output.note, /without re-encoding/);
+});
+
+test("requested MP3 passes through an already validated MP3 without transcoding", async (t) => {
+    if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-mp3-copy-"));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    const input = path.join(dir, "source.mp3");
+    await runFFmpeg(["-f", "lavfi", "-i", "sine=frequency=440:duration=0.2", "-c:a", "libmp3lame", "-y", input]);
+    const artifact = await validateArtifact(input, { outputType: "audio" });
+    const bytes = await fs.readFile(input);
+    const output = await processMedia(artifact, { outputType: "audio", format: "mp3", tempDir: dir });
+    assert.equal(output.filePath, input);
+    assert.deepEqual(await fs.readFile(output.filePath), bytes);
+    assert.deepEqual(await fs.readdir(dir), ["source.mp3"]);
+});
+
+test("job-scoped FFprobe cache reuses unchanged files and invalidates replacements", async (t) => {
+    if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-probe-cache-"));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    const input = path.join(dir, "source.wav");
+    await runFFmpeg(["-f", "lavfi", "-i", "sine=duration=0.2", "-y", input]);
+    await withJobResources(dir, new AbortController().signal, async (signal) => {
+        const first = await getMediaInfo(input, { signal });
+        assert.equal(await getMediaInfo(input, { signal }), first);
+        assert.equal(jobResources().mediaInfoCache.size, 1);
+        await runFFmpeg(["-f", "lavfi", "-i", "sine=duration=0.4", "-y", input], { signal });
+        const replaced = await getMediaInfo(input, { signal });
+        assert.notEqual(replaced, first);
+        assert.ok(replaced.duration > first.duration);
+        assert.equal(jobResources().mediaInfoCache.size, 2);
+    });
+});
+
+test("converts audio to requested MP3 without requiring size compression", async (t) => {
+    if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-mp3-"));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    const input = path.join(dir, "source.wav");
+    await runFFmpeg(["-f", "lavfi", "-i", "sine=frequency=440:duration=0.2", "-c:a", "pcm_s16le", "-y", input]);
+    const value = {
+        filePath: input,
+        fileName: "source.wav",
+        sizeBytes: (await fs.stat(input)).size,
+        mediaKind: "audio",
+        extension: "wav",
+        isAudioOnly: true,
+    };
+    for (const maxOutputBytes of [undefined, 100_000]) {
+        const output = await processMedia(value, { outputType: "audio", format: "mp3", tempDir: dir, maxOutputBytes, allowCompression: false });
+        assert.equal(output.extension, "mp3");
+        assert.match(output.note, /converted to MP3/);
+        assert.equal((await getMediaInfo(output.filePath)).hasAudio, true);
+    }
+    await assert.rejects(
+        processMedia(value, { outputType: "audio", format: "mp3", tempDir: dir, maxOutputBytes: 1, allowCompression: false }),
+        (error) => error.code === "FILE_TOO_LARGE",
+    );
+});
 
 test("extracts an image from a sub-second video", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
@@ -107,7 +203,7 @@ test("auto fits oversized audio instead of rejecting the original", async (t) =>
     assert.match(output.note, /requested size/);
 });
 
-test("audio output extracts audio from a WebM video", async (t) => {
+test("original audio output preserves Opus from a WebM video", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-webm-audio-"));
     const input = path.join(dir, "source.webm");
@@ -150,9 +246,10 @@ test("audio output extracts audio from a WebM video", async (t) => {
     );
 
     const outputInfo = await getMediaInfo(output.filePath);
-    assert.equal(output.extension, "mp3");
+    assert.equal(output.extension, "opus");
     assert.equal(outputInfo.hasVideo, false);
     assert.equal(outputInfo.hasAudio, true);
+    assert.equal(outputInfo.audioCodec, inputInfo.audioCodec);
 });
 
 test("auto fits oversized images instead of rejecting the original", async (t) => {

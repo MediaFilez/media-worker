@@ -20,6 +20,10 @@ const output = z
             .optional(),
         allowCompression: z.boolean().default(false),
     })
+    .refine((value) => value.quality !== "audio-only" || !["mp4", "jpg"].includes(value.format), {
+        message: "audio-only quality requires original or mp3 format.",
+        path: ["format"],
+    })
     .default({ type: "auto", format: "original", quality: "best", allowCompression: false });
 
 export const downloadJobSchema = z.object({

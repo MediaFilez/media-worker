@@ -18,6 +18,7 @@ export function parsePublicHttpUrl(rawUrl) {
     if (!["http:", "https:"].includes(url.protocol)) {
         throw userError("Only http:// and https:// URLs are supported.", "INVALID_URL", { stopFallback: true });
     }
+    if (url.username || url.password) throw userError("URLs containing credentials are not allowed.", "INVALID_URL", { stopFallback: true });
 
     if (!url.hostname || BLOCKED_HOSTS.has(url.hostname.toLowerCase())) {
         throw userError("Local or private network URLs are not allowed.", "PRIVATE_URL", { stopFallback: true });
@@ -47,17 +48,32 @@ function isBlockedIpv4(address) {
 }
 
 function isBlockedIpv6(address) {
-    const normalized = address.toLowerCase();
+    let normalized;
+    try {
+        normalized = new URL(`http://[${address}]/`).hostname.slice(1, -1);
+    } catch {
+        return true;
+    }
     if (normalized === "::" || normalized === "::1") return true;
     if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
     if (normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb")) return true;
     if (normalized.startsWith("ff") || normalized.startsWith("2001:db8:")) return true;
 
     if (normalized.startsWith("::ffff:")) {
-        return isBlockedIpv4(normalized.slice("::ffff:".length));
+        const words = normalized.slice(7).split(":");
+        const value = words.map((word) => Number.parseInt(word, 16));
+        if (value.length !== 2) return true;
+        return isBlockedIpv4([value[0] >> 8, value[0] & 255, value[1] >> 8, value[1] & 255].join("."));
     }
-
-    return false;
+    // Only globally routed unicast; reject transition ranges that can embed private IPv4.
+    const words = normalized.split(":");
+    const second = Number.parseInt(words[1] || "0", 16);
+    return (
+        !/^[23]/.test(normalized) ||
+        normalized.startsWith("2002:") ||
+        normalized.startsWith("3fff:") ||
+        (words[0] === "2001" && (second === 0 || second === 2 || (second >= 0x10 && second <= 0x2f)))
+    );
 }
 
 export function isBlockedAddress(address) {
@@ -68,10 +84,11 @@ export function isBlockedAddress(address) {
 }
 
 export async function assertPublicHttpUrl(rawUrl, options = {}) {
+    options.signal?.throwIfAborted();
     const url = parsePublicHttpUrl(rawUrl);
-    const hostname = url.hostname;
+    const hostname = url.hostname.replace(/^\[|\]$/g, "");
     const trustedHosts = new Set((options.trustedHosts ?? []).map((host) => host.toLowerCase()));
-    if (trustedHosts.has(hostname.toLowerCase())) return url;
+    if (trustedHosts.has(hostname.toLowerCase()) || (options.trustedOrigins ?? []).includes(url.origin)) return url;
 
     if (net.isIP(hostname)) {
         if (isBlockedAddress(hostname)) {
@@ -82,8 +99,9 @@ export async function assertPublicHttpUrl(rawUrl, options = {}) {
 
     let records;
     try {
-        records = await dnsPromises.lookup(hostname, { all: true, verbatim: false });
+        records = await abortableLookup(hostname, options.signal);
     } catch {
+        options.signal?.throwIfAborted();
         throw userError("The URL host could not be resolved.", "DNS_FAILED", { stopFallback: true });
     }
 
@@ -92,6 +110,19 @@ export async function assertPublicHttpUrl(rawUrl, options = {}) {
     }
 
     return url;
+}
+
+export async function abortableLookup(hostname, parentSignal) {
+    const signal = AbortSignal.any([AbortSignal.timeout(10_000), ...(parentSignal ? [parentSignal] : [])]);
+    signal.throwIfAborted();
+    return new Promise((resolve, reject) => {
+        const abort = () => reject(signal.reason);
+        signal.addEventListener("abort", abort, { once: true });
+        dnsPromises
+            .lookup(hostname, { all: true, verbatim: false })
+            .then(resolve, reject)
+            .finally(() => signal.removeEventListener("abort", abort));
+    });
 }
 
 export function publicDnsLookup(hostname, options, callback) {

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { config } from "../config.js";
-import { DownloadMethodError, UserFacingError, userError } from "../utils/errors.js";
+import { DownloadMethodError, UserFacingError, userError, redactSensitive } from "../utils/errors.js";
 import { assertPublicHttpUrl } from "../utils/security.js";
 import { log } from "../utils/logger.js";
 import { classifySource, planEngines } from "./planner.js";
@@ -29,17 +29,13 @@ const DEFAULT_ENGINES = new Map([
 ]);
 
 function compactEngineError(message) {
-    const detail = String(message || "Unknown engine failure")
+    const detail = redactSensitive(message || "Unknown engine failure")
         .replace(/\s+/g, " ")
         .trim();
     if (/you(?:'|’)ve been blocked by network security/i.test(detail)) {
         return "The source blocked this server's network address.";
     }
     return detail.length > 800 ? `${detail.slice(0, 797)}...` : detail;
-}
-
-function abortError() {
-    return userError("The job timed out before the download finished. Try a smaller file or a faster source.", "JOB_TIMEOUT", { stopFallback: true });
 }
 
 function publicFailure(rawUrl, attempts, outputType) {
@@ -53,7 +49,7 @@ function publicFailure(rawUrl, attempts, outputType) {
         return "FFmpeg or FFprobe is unavailable. Reinstall dependencies or configure FFMPEG_PATH and FFPROBE_PATH.";
     }
     if (/gallery-dl is unavailable/i.test(messages) && attempts.length === 1) {
-        return "gallery-dl is unavailable. Run pnpm run tools:install, set GALLERY_DL_PATH, or use Docker.";
+        return "gallery-dl is unavailable. Set GALLERY_DL_PATH to an installed binary, or use the Worker Docker image.";
     }
     if (outputType !== "auto" && /contains image media, not video|returned image media/i.test(messages)) {
         return "The source is an image. Choose image output and try again.";
@@ -61,8 +57,8 @@ function publicFailure(rawUrl, attempts, outputType) {
     if (source.instagram && /account authentication|cookies|login required/i.test(messages)) {
         return "Could not retrieve media from this source. Try another link or try again later.";
     }
-    if (/HTTP (?:Error )?403|forbidden|blocked this server's network address/i.test(messages)) {
-        return "This source blocked automated access (HTTP 403), and no enabled engine could extract its media. Try a direct media URL or another source.";
+    if (/HTTP (?:Error )?403|forbidden|blocked this server's network address|your IP address is blocked/i.test(messages)) {
+        return "This source blocked automated access from the worker's network address, and no enabled engine could extract its media. Try a direct media URL or another source.";
     }
     if (/unsupported url|no suitable extractor/i.test(messages)) {
         return "This site or URL is not supported by the enabled download engines.";
@@ -83,7 +79,8 @@ function publicFailure(rawUrl, attempts, outputType) {
  * @throws {Error} If the URL is invalid, the operation is cancelled, or all download engines fail.
  */
 export async function downloadMedia(rawUrl, jobDir, options = {}) {
-    await assertPublicHttpUrl(rawUrl);
+    options.signal?.throwIfAborted();
+    await assertPublicHttpUrl(rawUrl, { signal: options.signal });
     const outputType = options.outputType ?? "video";
     const maxBytes = options.maxBytes ?? config.maxDownloadBytes;
     const engineRegistry = options.engines ?? DEFAULT_ENGINES;
@@ -92,6 +89,7 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
     let silentFallback = null;
 
     async function commitResult(artifact, method, metadata, recovered) {
+        options.signal?.throwIfAborted();
         return {
             ...(await commitArtifact(artifact, jobDir)),
             method,
@@ -119,7 +117,7 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
     }
 
     for (const [index, engineName] of plan.entries()) {
-        if (options.signal?.aborted) throw abortError();
+        options.signal?.throwIfAborted();
         if (silentFallback && engineName !== "yt-dlp") continue;
         const engine = engineRegistry.get(engineName);
         if (!engine) continue;
@@ -134,6 +132,7 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
         });
 
         try {
+            options.signal?.throwIfAborted();
             const candidate = await engine(rawUrl, attemptDir, {
                 ...options,
                 maxBytes,
@@ -155,8 +154,9 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
             );
             if (result) return result;
         } catch (error) {
-            if (options.signal?.aborted) throw abortError();
+            options.signal?.throwIfAborted();
             if (error instanceof UserFacingError && error.stopFallback) {
+                if (["PRIVATE_URL", "INVALID_URL", "TEMP_LIMIT"].includes(error.code)) throw error;
                 if (!silentFallback) throw error;
                 attempts.push({
                     engine: engineName,
@@ -183,13 +183,16 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
         }
     }
 
-    if (options.signal?.aborted) throw abortError();
+    options.signal?.throwIfAborted();
     if (silentFallback) {
         log.info("No audio-bearing alternative was found; keeping the original silent video.");
         return await commitResult(silentFallback.artifact, silentFallback.method, silentFallback.metadata, silentFallback.recovered);
     }
 
-    const error = userError(publicFailure(rawUrl, attempts, outputType), "DOWNLOAD_FAILED");
+    const unsupported = attempts.length > 0 && attempts.every((attempt) => /unsupported url|no suitable extractor/i.test(attempt.error));
+    const error = userError(publicFailure(rawUrl, attempts, outputType), unsupported ? "UNSUPPORTED_MEDIA" : "DOWNLOAD_FAILED", {
+        stopFallback: unsupported,
+    });
     error.attempts = attempts;
     throw error;
 }
