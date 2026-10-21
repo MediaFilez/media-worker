@@ -43,6 +43,9 @@ export interface MediaInfo {
     bitrate: number;
     hasVideo: boolean;
     hasAudio: boolean;
+    audioCodec?: string | null;
+    audioSampleRate?: number;
+    audioChannels?: number;
     width: number;
     height: number;
     videoBitrate: number;

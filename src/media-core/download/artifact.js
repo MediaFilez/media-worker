@@ -55,6 +55,8 @@ export async function validateArtifact(candidate, options = {}) {
             { stopFallback: true },
         );
     }
+    // No fallback MIME is supplied to describeFile here, so a MIME requires a detected signature.
+    if (!file.mime) throw new Error("The artifact has no recognized media signature.");
 
     let mediaInfo = null;
     if (file.mediaKind === "video" || file.mediaKind === "audio") {

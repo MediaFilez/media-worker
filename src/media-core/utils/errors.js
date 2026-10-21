@@ -42,10 +42,49 @@ export function isUserFacingError(error) {
     return error instanceof UserFacingError || error?.name === "UserFacingError";
 }
 
+export function isRetryableError(error) {
+    if (!(error instanceof Error)) return false;
+    if (
+        error.stopFallback ||
+        [
+            "INVALID_URL",
+            "PRIVATE_URL",
+            "UNSUPPORTED_MEDIA",
+            "WRONG_MEDIA_TYPE",
+            "FILE_TOO_LARGE",
+            "IDENTITY_CONFLICT",
+            "JOB_CANCELLED",
+            "TEMP_LIMIT",
+        ].includes(error.code)
+    )
+        return false;
+    return !["AbortError", "ZodError", "TypeError"].includes(error.name);
+}
+
+export function redactSensitive(value) {
+    return String(value)
+        .replace(/https?:\/\/[^\s<>"']+/gi, (raw) => {
+            try {
+                const url = new URL(raw);
+                if (url.username || url.password) {
+                    url.username = "redacted";
+                    url.password = "";
+                }
+                if (url.search) url.search = "?redacted";
+                if (url.hash) url.hash = "#redacted";
+                return url.href;
+            } catch {
+                return "[redacted URL]";
+            }
+        })
+        .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/-]+=*/gi, "$1 [redacted]")
+        .replace(/((?:authorization|cookie|set-cookie|api[_-]?key|access[_-]?token|password)\s*[:=]\s*)[^\r\n]+/gi, "$1[redacted]");
+}
+
 export function messageForError(error) {
-    if (isUserFacingError(error)) return error.message;
-    if (error instanceof DeliveryUnknownError || error?.name === "DeliveryUnknownError") return error.message;
-    if (typeof error?.publicMessage === "string") return error.publicMessage;
+    if (isUserFacingError(error)) return redactSensitive(error.message);
+    if (error instanceof DeliveryUnknownError || error?.name === "DeliveryUnknownError") return redactSensitive(error.message);
+    if (typeof error?.publicMessage === "string") return redactSensitive(error.publicMessage);
     if (error?.name === "TimeoutError") return "The job timed out. Try a smaller file or a faster source URL.";
     if (error?.name === "AbortError" || error?.code === "ABORT_ERR") {
         return "The job was cancelled before it finished. Try again with a smaller file.";

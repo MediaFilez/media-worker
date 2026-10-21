@@ -5,6 +5,7 @@ import { DownloadMethodError } from "../../utils/errors.js";
 import { assertPublicHttpUrl, publicDnsLookup } from "../../utils/security.js";
 import { preferredVideoHeight } from "../videoQuality.js";
 import { downloadDirectHttp } from "./directHttp.js";
+import { publicFetch } from "../../utils/publicFetch.js";
 
 let directoryCache = { expiresAt: 0, data: null };
 const endpointCooldowns = new Map();
@@ -113,17 +114,21 @@ export function selectCobaltDirectoryEndpoints(response, rawUrl) {
  * @param {string} rawUrl - Source URL used to select matching service endpoints.
  * @return {Promise<string[]>} Matching directory endpoint URLs, or an empty array when unavailable.
  */
-async function directoryEndpoints(signal, rawUrl) {
+async function directoryEndpoints(signal, rawUrl, fetchDirectory = publicFetch) {
     if (!config.cobaltDirectoryEnabled) return [];
     if (directoryCache.expiresAt > Date.now()) {
         return selectCobaltDirectoryEndpoints(directoryCache.data, rawUrl);
     }
 
     try {
-        const response = await fetch(config.cobaltDirectoryUrl, {
-            signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
-            headers: { accept: "application/json", "user-agent": config.userAgent },
-        });
+        const response = await fetchDirectory(
+            config.cobaltDirectoryUrl,
+            {
+                signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
+                headers: { accept: "application/json", "user-agent": config.userAgent },
+            },
+            { maxBytes: MAX_COBALT_JSON_BYTES },
+        );
 
         if (!response.ok) {
             await closeResponse(response);
@@ -145,14 +150,16 @@ async function directoryEndpoints(signal, rawUrl) {
  * @param {number} targetBytes - The target output size used to select video quality.
  * @return {Object} The Cobalt request payload.
  */
-export function cobaltRequestPayload(rawUrl, outputType, targetBytes) {
-    const preferredHeight = ["auto", "video"].includes(outputType) ? preferredVideoHeight(targetBytes) : null;
+export function cobaltRequestPayload(rawUrl, outputType, targetBytes, maxHeight) {
+    const preferredHeight = ["auto", "video"].includes(outputType) ? maxHeight || preferredVideoHeight(targetBytes) : null;
     return {
         url: rawUrl,
         videoQuality: preferredHeight ? String(preferredHeight) : "max",
-        youtubeVideoCodec: "h264",
-        youtubeVideoContainer: "mp4",
-        audioFormat: outputType === "audio" ? "mp3" : "best",
+        youtubeVideoCodec: "vp9",
+        youtubeVideoContainer: "auto",
+        audioFormat: "best",
+        youtubeBetterAudio: true,
+        allowH265: true,
         downloadMode: outputType === "audio" ? "audio" : "auto",
         filenameStyle: "basic",
         disableMetadata: false,
@@ -263,7 +270,7 @@ async function callEndpoint(endpoint, rawUrl, attemptDir, options, trustedEndpoi
     let endpointUrl;
     try {
         endpointUrl = await assertPublicHttpUrl(endpoint, {
-            trustedHosts: trustedEndpoint ? [new URL(endpoint).hostname] : [],
+            trustedOrigins: trustedEndpoint ? [new URL(endpoint).origin] : [],
         });
     } catch (error) {
         throw new DownloadMethodError("cobalt", "Cobalt directory returned a non-public endpoint.", {
@@ -275,11 +282,15 @@ async function callEndpoint(endpoint, rawUrl, attemptDir, options, trustedEndpoi
         : AbortSignal.timeout(config.cobaltEndpointTimeoutMs);
     const response = await requestCobaltEndpoint(
         endpointUrl,
-        JSON.stringify(cobaltRequestPayload(rawUrl, options.outputType ?? "video", options.targetBytes)),
+        JSON.stringify(cobaltRequestPayload(rawUrl, options.outputType ?? "video", options.targetBytes, options.maxHeight)),
         signal,
         trustedEndpoint,
     );
     const status = response.statusCode ?? 0;
+    if ([301, 302, 303, 307, 308].includes(status)) {
+        response.destroy();
+        throw new DownloadMethodError("cobalt", "Cobalt endpoint redirects are not allowed.");
+    }
     let data;
 
     try {
@@ -307,7 +318,7 @@ async function callEndpoint(endpoint, rawUrl, attemptDir, options, trustedEndpoi
             ...options,
             preferredName: media.fileName,
             methodLabel: `cobalt:${endpointUrl.hostname}`,
-            trustedHosts: trustedEndpoint ? [endpointUrl.hostname] : [],
+            trustedOrigins: trustedEndpoint ? [endpointUrl.origin] : [],
         });
     } catch (error) {
         if (["DNS_FAILED", "INVALID_URL", "PRIVATE_URL"].includes(error?.code)) {
@@ -333,7 +344,7 @@ async function callEndpoint(endpoint, rawUrl, attemptDir, options, trustedEndpoi
 export async function downloadWithCobalt(rawUrl, attemptDir, options = {}) {
     const configuredEndpoints = uniqueEndpoints(config.cobaltApiEndpoints);
     const trustedEndpoints = new Set(configuredEndpoints);
-    const endpoints = uniqueEndpoints([...configuredEndpoints, ...(await directoryEndpoints(options.signal, rawUrl))]).slice(
+    const endpoints = uniqueEndpoints([...configuredEndpoints, ...(await directoryEndpoints(options.signal, rawUrl, options.fetchDirectory))]).slice(
         0,
         config.cobaltMaxEndpoints,
     );

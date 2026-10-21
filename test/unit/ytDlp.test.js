@@ -27,6 +27,9 @@ test("gives yt-dlp a private writable cookie copy", async (t) => {
         outputType: "image",
         maxBytes: 1024 * 1024,
         processRunner: async (_executable, args) => {
+            assert.equal(args.includes("--merge-output-format"), false);
+            assert.equal(args[args.indexOf("--max-downloads") + 1], "1");
+            assert.equal(args[args.indexOf("--playlist-items") + 1], "1");
             cookieArgument = args[args.indexOf("--cookies") + 1];
             assert.notEqual(cookieArgument, originalCookies);
             await fs.appendFile(cookieArgument, "# yt-dlp update\n");

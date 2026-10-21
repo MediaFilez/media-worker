@@ -10,10 +10,11 @@ import { describeFile, makeSafeFileName } from "../../utils/files.js";
 import { formatBytes } from "../../utils/format.js";
 import { downloadDirectHttp } from "./directHttp.js";
 import { preferredVideoHeight } from "../videoQuality.js";
+import { publicFetch, withFetchSignal } from "../../utils/publicFetch.js";
 
 let clientPromise;
 
-export function getClient(createClient = () => Innertube.create({ retrieve_player: true })) {
+export function getClient(createClient = () => Innertube.create({ retrieve_player: true, fetch: publicFetch })) {
     if (!clientPromise) {
         clientPromise = Promise.resolve()
             .then(createClient)
@@ -76,6 +77,22 @@ export async function saveStream(stream, filePath, maxBytes, options) {
 }
 
 export async function downloadWithYouTubeJs(rawUrl, attemptDir, options = {}) {
+    return withFetchSignal(options.signal, () => downloadYouTube(rawUrl, attemptDir, options));
+}
+
+export function youtubeDownloadOptions(info, options = {}) {
+    if (options.outputType === "audio") return { type: "audio", quality: "best", format: "any" };
+    const height = options.maxHeight || preferredVideoHeight(options.targetBytes);
+    const formats = info.streaming_data?.formats ?? [];
+    const preferred = height
+        ? formats
+              .filter((format) => format.has_video && format.has_audio && format.mime_type?.includes("mp4") && format.height <= height)
+              .sort((left, right) => right.height - left.height || right.bitrate - left.bitrate)[0]
+        : null;
+    return { type: "video+audio", quality: "best", format: "mp4", ...(preferred ? { itag: preferred.itag } : {}) };
+}
+
+async function downloadYouTube(rawUrl, attemptDir, options) {
     const id = youtubeId(rawUrl);
     if (!id) throw new DownloadMethodError("youtube-js", "The URL does not contain a YouTube video ID.");
 
@@ -99,12 +116,7 @@ export async function downloadWithYouTubeJs(rawUrl, attemptDir, options = {}) {
         const extension = isAudio ? "m4a" : "mp4";
         const fileName = makeSafeFileName(metadata.title, id, extension);
         const filePath = path.join(attemptDir, fileName);
-        const preferredHeight = preferredVideoHeight(options.targetBytes);
-        const stream = await info.download({
-            type: isAudio ? "audio" : "video+audio",
-            quality: isAudio || !preferredHeight ? "best" : `${preferredHeight}p`,
-            format: isAudio ? "any" : "mp4",
-        });
+        const stream = await info.download(youtubeDownloadOptions(info, options));
         await saveStream(stream, filePath, options.maxBytes ?? config.maxDownloadBytes, options);
 
         return {
@@ -115,6 +127,7 @@ export async function downloadWithYouTubeJs(rawUrl, attemptDir, options = {}) {
             isAudioOnly: isAudio,
         };
     } catch (error) {
+        options.signal?.throwIfAborted();
         if (error?.name === "AbortError" || error?.stopFallback || error instanceof DownloadMethodError) throw error;
         throw new DownloadMethodError("youtube-js", error.message || "YouTube.js failed.", { cause: error });
     }

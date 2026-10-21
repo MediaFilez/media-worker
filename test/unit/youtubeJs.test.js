@@ -3,7 +3,16 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { saveStream } from "../../src/media-core/download/engines/youtubeJs.js";
+import { saveStream, youtubeDownloadOptions } from "../../src/media-core/download/engines/youtubeJs.js";
+
+test("YouTube.js chooses the highest available progressive format within the requested height", () => {
+    const format = (itag, height) => ({ itag, height, bitrate: height * 1000, has_video: true, has_audio: true, mime_type: "video/mp4" });
+    const info = { streaming_data: { formats: [format(1, 360), format(2, 480), format(3, 1080)] } };
+    assert.equal(youtubeDownloadOptions(info, { maxHeight: 720 }).itag, 2);
+    assert.equal(youtubeDownloadOptions(info, { maxHeight: 360 }).itag, 1);
+    assert.equal(youtubeDownloadOptions(info, {}).quality, "best");
+    assert.equal(youtubeDownloadOptions(info, { outputType: "audio", maxHeight: 720 }).type, "audio");
+});
 
 test("retries YouTube.js client initialization after a transient failure", async () => {
     const { getClient } = await import(`../../src/media-core/download/engines/youtubeJs.js?retry-test=${Date.now()}`);

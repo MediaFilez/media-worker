@@ -100,7 +100,7 @@ function responseHeader(response, name) {
  */
 function requestMedia(url, options) {
     const transport = url.protocol === "https:" ? https : http;
-    const trusted = options.trustedHosts.has(url.hostname.toLowerCase());
+    const trusted = options.trustedHosts.has(url.hostname.toLowerCase()) || options.trustedOrigins.includes(url.origin);
 
     return new Promise((resolve, reject) => {
         const request = transport.request(
@@ -127,7 +127,8 @@ function requestMedia(url, options) {
 
 export async function openPublicHttpResponse(rawUrl, options = {}) {
     const trustedHosts = options.trustedHosts ?? [];
-    let current = await assertPublicHttpUrl(rawUrl, { trustedHosts });
+    const trustedOrigins = options.trustedOrigins ?? [];
+    let current = await assertPublicHttpUrl(rawUrl, { trustedHosts, trustedOrigins, signal: options.signal });
     const trusted = new Set(trustedHosts.map((host) => host.toLowerCase()));
 
     for (let redirect = 0; redirect <= 5; redirect += 1) {
@@ -136,6 +137,7 @@ export async function openPublicHttpResponse(rawUrl, options = {}) {
             response = await requestMedia(current, {
                 signal: options.signal,
                 trustedHosts: trusted,
+                trustedOrigins,
                 referer: options.referer,
                 headers: options.headers,
             });
@@ -152,7 +154,15 @@ export async function openPublicHttpResponse(rawUrl, options = {}) {
         response.destroy();
         const location = responseHeader(response, "location");
         if (!location) throw new DownloadMethodError("direct-http", `HTTP ${response.statusCode} redirect had no Location header.`);
-        current = await assertPublicHttpUrl(new URL(location, current).href, { trustedHosts });
+        const next = await assertPublicHttpUrl(new URL(location, current).href, { trustedHosts, trustedOrigins, signal: options.signal });
+        if (next.origin !== current.origin) {
+            // Never forward endpoint credentials to a redirect destination.
+            options = { ...options, headers: { ...options.headers } };
+            for (const name of Object.keys(options.headers)) {
+                if (["authorization", "cookie"].includes(name.toLowerCase())) delete options.headers[name];
+            }
+        }
+        current = next;
     }
     throw new DownloadMethodError("direct-http", "The server redirected too many times.");
 }
@@ -173,6 +183,7 @@ export async function downloadDirectHttp(rawUrl, attemptDir, options = {}) {
         const { response, finalUrl } = await openPublicHttpResponse(rawUrl, {
             signal: transfer.signal,
             trustedHosts: options.trustedHosts,
+            trustedOrigins: options.trustedOrigins,
             referer: options.referer,
         });
         if ((response.statusCode ?? 0) < 200 || (response.statusCode ?? 0) >= 300) {

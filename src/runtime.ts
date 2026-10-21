@@ -11,6 +11,9 @@ import { workerJobSchema, type WorkerJob } from "./jobs/schema.js";
 import type { WorkerResult } from "./jobs/types.js";
 import { createDefaultStorage } from "./storage/default.js";
 import type { MediaStorage } from "./storage/storage.js";
+import { log } from "./media-core/utils/logger.js";
+import { withJobResources } from "./media-core/utils/resources.js";
+import { isRetryableError, redactSensitive } from "./media-core/utils/errors.js";
 
 export interface WorkerRuntimeOptions {
     core?: MediaCore;
@@ -24,16 +27,6 @@ export interface WorkerRuntimeOptions {
 export interface ExecuteOptions {
     signal?: AbortSignal;
     onProgress?: (update: ProgressUpdate) => void | Promise<void>;
-}
-
-function isRetryable(error: unknown): boolean {
-    if (!(error instanceof Error)) return false;
-    const candidate = error as Error & { code?: string; stopFallback?: boolean };
-    if (candidate.stopFallback) return false;
-    if (["INVALID_URL", "PRIVATE_URL", "UNSUPPORTED_MEDIA", "WRONG_MEDIA_TYPE", "FILE_TOO_LARGE"].includes(candidate.code ?? "")) {
-        return false;
-    }
-    return !["AbortError", "ZodError", "TypeError"].includes(candidate.name);
 }
 
 export class WorkerRuntime {
@@ -57,24 +50,38 @@ export class WorkerRuntime {
         const job = workerJobSchema.parse(input);
         const startedAt = new Date();
         let lastError: unknown;
+        const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
+        const signals = [timeoutSignal, tempOwnershipSignal];
+        if (options.signal) signals.push(options.signal);
+        const signal = AbortSignal.any(signals);
+        const onProgress = options.onProgress
+            ? async (update: ProgressUpdate) => {
+                  try {
+                      await options.onProgress!(update);
+                  } catch {
+                      log.warn("Job progress update failed.");
+                  }
+              }
+            : undefined;
 
+        signal.throwIfAborted();
         if (this.tempRoot) await fs.mkdir(this.tempRoot, { recursive: true });
 
         for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
-            const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
-            const signals = [timeoutSignal, tempOwnershipSignal];
-            if (options.signal) signals.push(options.signal);
-            const signal = AbortSignal.any(signals);
+            signal.throwIfAborted();
             let jobDir: string | undefined;
 
             try {
                 jobDir = await createRequestTempDir(this.tempRoot ? { rootDir: this.tempRoot } : {});
-                const result = await this.executeOnce(job, jobDir, {
-                    signal,
-                    onProgress: options.onProgress,
-                });
+                signal.throwIfAborted();
+                const result = await withJobResources(jobDir, signal, (resourceSignal: AbortSignal) =>
+                    this.executeOnce(job, jobDir!, {
+                        signal: resourceSignal,
+                        onProgress,
+                    }),
+                );
                 const completedAt = new Date();
-                await options.onProgress?.({ phase: "completed", attempt, totalAttempts: this.maxAttempts });
+                await onProgress?.({ phase: "completed", attempt, totalAttempts: this.maxAttempts });
                 return {
                     ...result,
                     jobId: job.jobId,
@@ -86,17 +93,23 @@ export class WorkerRuntime {
                 };
             } catch (error) {
                 lastError = error;
-                if (signal.aborted || attempt >= this.maxAttempts || !isRetryable(error)) throw error;
-                const delayMs = this.retryBaseDelayMs * 2 ** (attempt - 1);
-                await options.onProgress?.({
-                    phase: "retrying",
-                    detail: error instanceof Error ? error.message : "Job attempt failed",
-                    attempt,
-                    totalAttempts: this.maxAttempts,
-                });
-                await delay(delayMs, undefined, { signal: options.signal });
+                signal.throwIfAborted();
+                if (attempt >= this.maxAttempts || !isRetryableError(error)) throw error;
             } finally {
                 await cleanupTempDir(jobDir);
+            }
+            const delayMs = this.retryBaseDelayMs * 2 ** (attempt - 1);
+            await onProgress?.({
+                phase: "retrying",
+                detail: lastError instanceof Error ? redactSensitive(lastError.message) : "Job attempt failed",
+                attempt,
+                totalAttempts: this.maxAttempts,
+            });
+            try {
+                await delay(delayMs, undefined, { signal });
+            } catch (error) {
+                signal.throwIfAborted();
+                throw error;
             }
         }
 

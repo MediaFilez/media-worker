@@ -15,11 +15,11 @@ RUN pnpm prune --prod
 
 FROM node:22-bookworm-slim AS runtime
 
-ARG GALLERY_DL_VERSION=1.32.13
+ARG GALLERY_DL_VERSION=1.32.17
 ARG YT_DLP_VERSION=2026.8.19
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates ffmpeg python3 python3-venv \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg python3 python3-venv util-linux \
     && python3 -m venv /opt/media-tools \
     && /opt/media-tools/bin/pip install --no-cache-dir \
         "gallery-dl==${GALLERY_DL_VERSION}" \

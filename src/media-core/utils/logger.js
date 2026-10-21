@@ -1,3 +1,5 @@
+import { redactSensitive } from "./errors.js";
+
 const COLORS = {
     reset: "\x1b[0m",
     red: "\x1b[31m",
@@ -14,7 +16,11 @@ function timestamp() {
 function format(level, color, args) {
     const ts = `${COLORS.gray}${timestamp()}${COLORS.reset}`;
     const tag = `${color}[${level}]${COLORS.reset}`;
-    return [ts, tag, ...args];
+    return [
+        ts,
+        tag,
+        ...args.map((value) => redactSensitive(value instanceof Error ? value.message : typeof value === "object" ? JSON.stringify(value) : value)),
+    ];
 }
 
 function debugEnabled() {

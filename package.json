@@ -21,6 +21,7 @@
         "start:job": "node dist/worker.js",
         "dev": "tsx src/worker.ts",
         "test": "tsx --test test/unit/*.test.js test/worker/*.test.js",
+        "test:redis": "tsx --test test/integration/redis.test.js",
         "check:boundaries": "node scripts/check-boundaries.mjs",
         "check": "pnpm run check:boundaries && pnpm run build && pnpm run test && pnpm run format:check",
         "format": "prettier --write .",

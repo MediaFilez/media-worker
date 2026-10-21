@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { WorkerRuntime } from "./runtime.js";
+import { redactSensitive } from "./media-core/utils/errors.js";
 
 export async function runJobFile(filePath: string): Promise<void> {
     const input = JSON.parse(await fs.readFile(filePath, "utf8")) as unknown;
@@ -21,7 +22,7 @@ if (entry === import.meta.url) {
         process.exitCode = 2;
     } else {
         runJobFile(filePath).catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = redactSensitive(error instanceof Error ? error.message : String(error));
             process.stderr.write(`${JSON.stringify({ event: "failed", message })}\n`);
             process.exitCode = 1;
         });
