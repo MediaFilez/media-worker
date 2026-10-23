@@ -50,6 +50,8 @@ The public quality choices are controlled variant IDs: `best`, `1080p`, `720p`, 
 
 No output size limit is applied unless the job supplies `output.maxBytes`. `MAX_DOWNLOAD_SIZE` is an operator-controlled ceiling for every source transfer and defaults to 5 GB. Batch jobs also share the `MAX_BATCH_TOTAL_SIZE` aggregate ceiling, which defaults to 10 GB.
 
+Instagram tries VideoDropper first using its encrypted URL protocol. Its resolver has a 20-second deadline, and media transfers keep the existing DNS, redirect, byte-limit and artifact checks. Provider failures continue through the existing Instagram engine order. `INSTAGRAM_PROXY_FIRST` puts that proxy after VideoDropper; `DISABLED_ENGINES=videodropper` omits the new engine. This uses public media URLs and sends no Instagram cookies or worker credentials to VideoDropper.
+
 ## Jobs
 
 Download job:

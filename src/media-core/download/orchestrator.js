@@ -13,6 +13,7 @@ import { downloadWithYouTubeJs } from "./engines/youtubeJs.js";
 import { downloadWithGalleryDl } from "./engines/galleryDl.js";
 import { downloadFromPageMetadata } from "./engines/pageMetadata.js";
 import { downloadWithInstagramProxy } from "./engines/instagramProxy.js";
+import { downloadWithVideoDropper } from "./engines/videoDropper.js";
 import { downloadFromRedditEmbed } from "./engines/redditEmbed.js";
 import { downloadWithRedditProxy } from "./engines/redditProxy.js";
 
@@ -24,6 +25,7 @@ const DEFAULT_ENGINES = new Map([
     ["gallery-dl", downloadWithGalleryDl],
     ["page-metadata", downloadFromPageMetadata],
     ["instagram-proxy", downloadWithInstagramProxy],
+    ["videodropper", downloadWithVideoDropper],
     ["reddit-embed", downloadFromRedditEmbed],
     ["reddit-proxy", downloadWithRedditProxy],
 ]);
