@@ -117,6 +117,8 @@ export function planEngines(rawUrl, outputType, settings = config) {
     else if (source.cobalt) names = ["cobalt", "yt-dlp", "gallery-dl", "page-metadata"];
     else names = ["page-metadata", "direct-http"];
 
+    if (source.instagram && !source.direct) names.unshift("videodropper");
+
     return names.filter((name) => {
         if (settings.disabledEngines?.has(name)) return false;
         if (name === "youtube-js" && !settings.youtubeJsEnabled) return false;
