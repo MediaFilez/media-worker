@@ -85,6 +85,81 @@ test("selects the thumbnail for thumbnail output", async (t) => {
     assert.equal(result.mediaKind, "image");
 });
 
+test("downloads every Instagram carousel item in source order", async (t) => {
+    const f = await fixture(t);
+    const result = await downloadWithVideoDropper(SOURCE, f.directory, {
+        ...f.options,
+        outputType: "auto",
+        requestVideoDropper: async () => response({ video: [1, 2, 3].map((slide) => ({ image: `${f.mediaUrl}?slide=${slide}` })) }),
+    });
+    assert.equal(result.items?.length, 3);
+    assert.equal(f.requests.length, 3);
+    for (const item of result.items) assert.deepEqual(await fs.readFile(item.filePath), f.bytes);
+    assert.equal(new Set(result.items.map((item) => item.filePath)).size, 3);
+});
+
+test("includes the separate image array alongside videos and avoids duplicate URLs", async (t) => {
+    const f = await fixture(t);
+    const result = await downloadWithVideoDropper(SOURCE, f.directory, {
+        ...f.options,
+        outputType: "auto",
+        requestVideoDropper: async () =>
+            response({ video: [{ video: `${f.mediaUrl}?video` }], image: [`${f.mediaUrl}?one`, `${f.mediaUrl}?two`, `${f.mediaUrl}?one`] }),
+    });
+    assert.equal(result.items.length, 3);
+    assert.equal(f.requests.length, 3);
+});
+
+test("supports image-only carousels and preserves the single-image result shape", async (t) => {
+    const f = await fixture(t);
+    const many = await downloadWithVideoDropper(SOURCE, f.directory, {
+        ...f.options,
+        outputType: "auto",
+        requestVideoDropper: async () => response({ image: [`${f.mediaUrl}?one`, `${f.mediaUrl}?two`] }),
+    });
+    assert.equal(many.items.length, 2);
+    const single = await downloadWithVideoDropper(SOURCE, path.join(f.directory, "single"), {
+        ...f.options,
+        requestVideoDropper: async () => response({ image: [f.mediaUrl] }),
+    });
+    assert.equal(single.items, undefined);
+});
+
+test("a failed carousel item cannot be recovered as a successful first-item-only post", async (t) => {
+    const f = await fixture(t);
+    const engines = new Map([
+        ["videodropper", downloadWithVideoDropper],
+        [
+            "single-only",
+            async (_url, dir) => {
+                await fs.writeFile(path.join(dir, "only.png"), PNG);
+                return { filePath: path.join(dir, "only.png"), fileName: "only.png" };
+            },
+        ],
+    ]);
+    await assert.rejects(
+        downloadMedia(SOURCE, path.join(f.directory, "job"), {
+            ...f.options,
+            outputType: "auto",
+            plan: [...engines.keys()],
+            engines,
+            requestVideoDropper: async () => response({ image: [f.mediaUrl, "http://127.0.0.1:1/missing.png"] }),
+        }),
+    );
+});
+
+test("enforces the total byte limit across carousel files", async (t) => {
+    const f = await fixture(t);
+    await assert.rejects(
+        downloadWithVideoDropper(SOURCE, f.directory, {
+            ...f.options,
+            maxBytes: PNG.length + 1,
+            requestVideoDropper: async () => response({ image: [`${f.mediaUrl}?one`, `${f.mediaUrl}?two`] }),
+        }),
+        (error) => error.code === "FILE_TOO_LARGE" && error.stopFallback,
+    );
+});
+
 test("does not send other platforms or credential-bearing URLs to VideoDropper", async () => {
     for (const url of [
         "https://example.com/reel/1",

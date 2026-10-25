@@ -62,6 +62,9 @@ export class LocalStorageAdapter implements MediaStorage {
             throw new Error("The stored job result metadata is missing or invalid.", { cause: error });
         }
         assertFingerprint(record.fingerprint, options.identity);
+        const count = record.result.collectionSize;
+        if (count !== undefined && (!Number.isSafeInteger(count) || count < 2 || count > 50))
+            throw new Error("The stored collection size is invalid.");
         const stat = await fs.stat(location);
         if (!stat.isFile() || stat.size !== record.result.sizeBytes) throw new Error("The stored job result is incomplete.");
         return { ...record.result, key, location };
@@ -119,7 +122,14 @@ export class LocalStorageAdapter implements MediaStorage {
             await copyArtifact(artifact, path.join(staging, "artifact"), options.signal);
             const sizeBytes = (await fs.stat(path.join(staging, "artifact"))).size;
             if (sizeBytes !== artifact.sizeBytes) throw new Error("The upload source changed during storage.");
-            const result = { key, sizeBytes, contentType: artifact.mime, fileName: artifact.fileName, location: destination };
+            const result = {
+                key,
+                sizeBytes,
+                contentType: artifact.mime,
+                fileName: artifact.fileName,
+                location: destination,
+                ...(artifact.collectionSize ? { collectionSize: artifact.collectionSize } : {}),
+            };
             await fs.writeFile(path.join(staging, "metadata.json"), JSON.stringify({ fingerprint: options.identity.fingerprint, result }));
             await checkJobTempBudget();
             options.signal?.throwIfAborted();

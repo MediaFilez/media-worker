@@ -1,9 +1,13 @@
 import https from "node:https";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { createCipheriv } from "node:crypto";
 import { DownloadMethodError } from "../../utils/errors.js";
 import { publicDnsLookup } from "../../utils/security.js";
 import { downloadDirectHttp } from "./directHttp.js";
 import { readBoundedJsonResponse } from "./cobalt.js";
+import { MAX_COLLECTION_ITEMS, mediaCollection, collectionFailure } from "../collection.js";
+import { userError } from "../../utils/errors.js";
 
 const METHOD = "videodropper";
 const ENDPOINT = "https://api.videodropper.app/allinone";
@@ -58,29 +62,48 @@ export async function downloadWithVideoDropper(rawUrl, attemptDir, options = {})
         });
     }
     options.signal?.throwIfAborted();
-    const entries = Array.isArray(data?.video) ? data.video : [];
-    const candidates = entries
-        .map((entry) => {
-            if (!entry || typeof entry !== "object") return null;
-            if (options.outputType === "thumbnail") return entry.thumbnail ?? entry.image ?? entry.video;
-            if (options.outputType === "image") return entry.image ?? entry.video ?? entry.thumbnail;
-            return entry.video ?? entry.image;
-        })
-        .filter((value) => typeof value === "string" && value.length > 0)
-        .slice(0, 20);
+    const entries = data?.video ?? [];
+    if (!Array.isArray(entries)) throw collectionFailure(new DownloadMethodError(METHOD, "VideoDropper returned invalid video media."));
+    const videoCandidates = entries.map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        if (options.outputType === "thumbnail") return entry.thumbnail ?? entry.image ?? entry.video;
+        if (options.outputType === "image") return entry.image ?? entry.video ?? entry.thumbnail;
+        return entry.video ?? entry.image;
+    });
+    if (videoCandidates.some((value) => typeof value !== "string" || !value)) {
+        throw collectionFailure(new DownloadMethodError(METHOD, "VideoDropper returned invalid video media."));
+    }
+    const images = ["video", "audio"].includes(options.outputType) ? [] : (data?.image ?? []);
+    if (!Array.isArray(images) || images.some((value) => typeof value !== "string" || !value)) {
+        throw collectionFailure(new DownloadMethodError(METHOD, "VideoDropper returned invalid image media."));
+    }
+    const candidates = [...new Set([...videoCandidates, ...images])];
     if (!candidates.length) throw new DownloadMethodError(METHOD, "VideoDropper returned no downloadable media.");
-
-    for (const candidate of candidates) {
+    if (candidates.length > MAX_COLLECTION_ITEMS) {
+        throw userError(`The post exceeds the ${MAX_COLLECTION_ITEMS}-file limit.`, "COLLECTION_TOO_LARGE", { stopFallback: true });
+    }
+    options.onCollection?.(candidates.length);
+    const items = [];
+    let totalBytes = 0;
+    for (const [index, candidate] of candidates.entries()) {
+        const destination = path.join(attemptDir, `item-${String(index + 1).padStart(3, "0")}`);
+        await fs.mkdir(destination, { recursive: true });
+        const remaining = (options.maxBytes ?? Number.MAX_SAFE_INTEGER) - totalBytes;
+        if (remaining <= 0) throw userError("The post exceeds the aggregate download size limit.", "FILE_TOO_LARGE", { stopFallback: true });
         try {
-            return await downloadDirectHttp(candidate, attemptDir, {
+            const item = await downloadDirectHttp(candidate, destination, {
                 ...options,
+                maxBytes: remaining,
                 methodLabel: METHOD,
                 referer: "https://www.instagram.com/",
             });
+            totalBytes += item.sizeBytes;
+            items.push(item);
         } catch (error) {
             options.signal?.throwIfAborted();
             if (error?.stopFallback) throw error;
+            throw collectionFailure(new DownloadMethodError(METHOD, "VideoDropper could not download the complete post.", { cause: error }));
         }
     }
-    throw new DownloadMethodError(METHOD, "VideoDropper media could not be downloaded.");
+    return mediaCollection(items);
 }

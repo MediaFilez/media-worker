@@ -122,8 +122,8 @@ export class WorkerRuntime {
         context: ExecuteOptions & { signal: AbortSignal },
     ): Promise<Omit<WorkerResult, "jobId" | "type" | "attempts" | "startedAt" | "completedAt" | "durationMs">> {
         if (job.type === "download") {
-            const output = await executeDownloadJob(job, jobDir, { core: this.core, storage: this.storage }, context);
-            return { output };
+            const { items, ...output } = await executeDownloadJob(job, jobDir, { core: this.core, storage: this.storage }, context);
+            return { output, ...(items ? { items } : {}) };
         }
         if (job.type === "batch") {
             const result = await executeBatchJob(job, jobDir, { core: this.core, storage: this.storage }, context);

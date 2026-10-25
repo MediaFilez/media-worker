@@ -23,6 +23,8 @@ export interface ProgressUpdate {
 }
 
 export interface MediaArtifact {
+    items?: MediaArtifact[];
+    collectionSize?: number;
     filePath: string;
     fileName: string;
     sizeBytes: number;
