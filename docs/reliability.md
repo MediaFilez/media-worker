@@ -43,3 +43,11 @@ Cancellation GETs are serial. The control client disables offline command queuin
 `best` retains the engine's best available media. Explicit heights prefer the highest available format at or below that height where the engine exposes variants. yt-dlp, nested gallery-dl yt-dlp and YouTube.js retain a best-format fallback when no suitable variant exists. Cobalt receives the explicit requested height. Direct media and native gallery extractors may offer only one rendition, so quality is a selection preference, not a hard output-resolution guarantee. `audio-only` selects audio processing in every path. An already valid MP3 passes through if it fits the requested byte limit. Changed processing outputs require signature and stream/type validation. Unchanged file probes are cached only within a job and invalidated by size or timestamp changes.
 
 Default regression tests use local fixtures. `pnpm run test:redis` uses only an explicitly configured `TEST_REDIS_URL`, random keys and its own queue. Use a disposable Redis server. Public-platform and live R2 checks remain deployment tests.
+
+## Instagram collections
+
+Instagram downloads preserve every resolved photo and video, up to 50 artifacts. `MediaArtifact.items` carries a collection in Core; single artifacts keep their existing shape. Aggregate source bytes must fit the job's download limit. A failed child transfer cannot be recovered as a successful first slide. Mixed VideoDropper posts follow the provider's video and image arrays, which do not expose the original combined slide order.
+
+Version 1 download results add optional `items: StoredMedia[]`; `output` still identifies the first file. The API must persist each item and expose its own file ID. Batch ZIP jobs flatten a post's artifacts into the archive.
+
+Each sibling has a stable create-only storage identity. The primary is written last with `collectionSize` metadata and acts as the collection commit marker. Retries recover every sibling from that marker, including when the primary upload committed but its acknowledgement was lost. Existing single-file storage records are unchanged. An old completed job remains its original result; submit a new job to retrieve a full album.

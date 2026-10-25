@@ -42,8 +42,9 @@ export async function executeBatchJob(
             dependencies.core,
             context,
         );
-        artifacts.push(artifact);
-        totalBytes += artifact.sizeBytes;
+        const downloaded = artifact.items ?? [artifact];
+        artifacts.push(...downloaded);
+        totalBytes += downloaded.reduce((sum, item) => sum + item.sizeBytes, 0);
         if (totalBytes > config.maxBatchBytes) {
             throw userError("The processed batch exceeds the configured aggregate size limit.", "BATCH_TOO_LARGE", { stopFallback: true });
         }

@@ -52,6 +52,54 @@ test("a fresh runtime recovers a result committed before acknowledgement", async
     assert.equal(downloads, 1);
 });
 
+test("a carousel commits every sibling before its primary and survives a lost acknowledgement", async (t) => {
+    const { root, artifact } = await fixture(t);
+    const storage = new LocalStorageAdapter(path.join(root, "stored"));
+    let downloads = 0;
+    const core = {
+        downloadMedia: async () => {
+            downloads++;
+            const items = [1, 2, 3].map((index) => ({ ...artifact, fileName: `${index}.png` }));
+            return { ...items[0], items };
+        },
+    };
+    const job = { type: "download", jobId: "carousel-ack", url: "https://www.instagram.com/p/fixture/" };
+    const put = storage.put.bind(storage);
+    storage.put = async (item, options) => {
+        const result = await put(item, options);
+        if (item.collectionSize) throw new Error("Primary committed but acknowledgement lost");
+        return result;
+    };
+    const options = { core, storage, tempRoot: path.join(root, "temp"), maxAttempts: 1 };
+    await assert.rejects(new WorkerRuntime(options).execute(job), /acknowledgement lost/);
+    const recovered = await new WorkerRuntime({ ...options, storage: new LocalStorageAdapter(storage.rootDir) }).execute(job);
+    assert.equal(recovered.items.length, 3);
+    assert.equal(recovered.output.key, recovered.items[0].key);
+    assert.equal(recovered.output.collectionSize, 3);
+    assert.equal(new Set(recovered.items.map((item) => item.key)).size, 3);
+    assert.equal(downloads, 1);
+    for (const item of recovered.items) assert.equal(await fs.readFile(item.location, "utf8"), "media");
+});
+
+test("failed sibling storage never publishes a successful collection marker", async (t) => {
+    const { root, artifact } = await fixture(t);
+    const storage = new LocalStorageAdapter(path.join(root, "stored"));
+    const core = { downloadMedia: async () => ({ ...artifact, items: [artifact, artifact, artifact] }) };
+    const job = { type: "download", jobId: "carousel-partial", url: "https://www.instagram.com/p/fixture/" };
+    const put = storage.put.bind(storage);
+    storage.put = async (item, options) => {
+        if (options.identity.jobId.endsWith(":item:2")) throw new Error("Sibling upload failed");
+        return put(item, options);
+    };
+    const options = { core, storage, tempRoot: path.join(root, "temp"), maxAttempts: 1 };
+    await assert.rejects(new WorkerRuntime(options).execute(job), /Sibling upload failed/);
+    const normalized = { ...job, delivery: "private", output: { type: "auto", format: "original", quality: "best", allowCompression: false } };
+    assert.equal(await storage.find({ identity: storageIdentity(normalized, "original") }), null);
+    storage.put = put;
+    const completed = await new WorkerRuntime(options).execute(job);
+    assert.equal(completed.items.length, 3);
+});
+
 test("R2 conditional commits recover a lost response and select the correct delete bucket", async (t) => {
     const { artifact } = await fixture(t);
     const storage = new R2StorageAdapter({

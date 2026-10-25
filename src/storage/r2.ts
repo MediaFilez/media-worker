@@ -42,12 +42,16 @@ export class R2StorageAdapter implements MediaStorage {
         }
         assertFingerprint(object.Metadata?.fingerprint, options.identity);
         if (!object.ContentLength || !object.Metadata?.filename) throw new Error("The stored job result is incomplete.");
+        const collectionSize = object.Metadata.collectionsize ? Number(object.Metadata.collectionsize) : undefined;
+        if (collectionSize !== undefined && (!Number.isSafeInteger(collectionSize) || collectionSize < 2 || collectionSize > 50))
+            throw new Error("The stored collection metadata is invalid.");
         return {
             key,
             sizeBytes: object.ContentLength,
             contentType: object.ContentType ?? null,
             fileName: Buffer.from(object.Metadata.filename, "base64url").toString("utf8"),
             location: `r2://${bucket}/${key}`,
+            ...(collectionSize ? { collectionSize } : {}),
         };
     }
 
@@ -71,7 +75,11 @@ export class R2StorageAdapter implements MediaStorage {
                     ...(options.identity
                         ? {
                               IfNoneMatch: "*",
-                              Metadata: { fingerprint: options.identity.fingerprint, filename: Buffer.from(artifact.fileName).toString("base64url") },
+                              Metadata: {
+                                  fingerprint: options.identity.fingerprint,
+                                  filename: Buffer.from(artifact.fileName).toString("base64url"),
+                                  ...(artifact.collectionSize ? { collectionsize: String(artifact.collectionSize) } : {}),
+                              },
                           }
                         : {}),
                     ...(artifact.mime ? { ContentType: artifact.mime } : {}),
@@ -96,6 +104,7 @@ export class R2StorageAdapter implements MediaStorage {
             contentType: artifact.mime,
             fileName: artifact.fileName,
             location: `r2://${bucket}/${key}`,
+            ...(artifact.collectionSize ? { collectionSize: artifact.collectionSize } : {}),
         };
     }
     async delete(key: string, options: { public?: boolean; signal?: AbortSignal } = {}): Promise<void> {
