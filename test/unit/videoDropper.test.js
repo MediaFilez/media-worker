@@ -188,9 +188,11 @@ test("rejects provider redirects, errors, malformed JSON, empty media and oversi
     }
 });
 
-test("keeps private media URLs blocked", async () => {
+test("keeps private media URLs blocked", async (t) => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-private-media-"));
+    t.after(() => fs.rm(directory, { recursive: true, force: true }));
     await assert.rejects(
-        downloadWithVideoDropper(SOURCE, "unused", {
+        downloadWithVideoDropper(SOURCE, directory, {
             requestVideoDropper: async () => response({ video: [{ video: "http://127.0.0.1/private.mp4" }] }),
         }),
         (error) => error.stopFallback && error.code === "PRIVATE_URL",
