@@ -14,7 +14,6 @@ import { downloadWithYouTubeJs } from "./engines/youtubeJs.js";
 import { downloadWithGalleryDl } from "./engines/galleryDl.js";
 import { downloadFromPageMetadata } from "./engines/pageMetadata.js";
 import { downloadWithInstagramProxy } from "./engines/instagramProxy.js";
-import { downloadWithVideoDropper } from "./engines/videoDropper.js";
 import { downloadFromRedditEmbed } from "./engines/redditEmbed.js";
 import { downloadWithRedditProxy } from "./engines/redditProxy.js";
 
@@ -26,7 +25,6 @@ const DEFAULT_ENGINES = new Map([
     ["gallery-dl", downloadWithGalleryDl],
     ["page-metadata", downloadFromPageMetadata],
     ["instagram-proxy", downloadWithInstagramProxy],
-    ["videodropper", downloadWithVideoDropper],
     ["reddit-embed", downloadFromRedditEmbed],
     ["reddit-proxy", downloadWithRedditProxy],
 ]);
@@ -35,9 +33,11 @@ function compactEngineError(message) {
     const detail = redactSensitive(message || "Unknown engine failure")
         .replace(/\s+/g, " ")
         .trim();
+
     if (/you(?:'|’)ve been blocked by network security/i.test(detail)) {
         return "The source blocked this server's network address.";
     }
+
     return detail.length > 800 ? `${detail.slice(0, 797)}...` : detail;
 }
 
@@ -45,31 +45,41 @@ function publicFailure(rawUrl, attempts, outputType) {
     const messages = attempts.map((attempt) => attempt.error).join(" ");
     const engines = [...new Set(attempts.map((attempt) => attempt.engine))].join(", ");
     const source = classifySource(rawUrl);
+
     if (attempts.length === 0) {
         return "No download engine is enabled for this URL. Check DISABLED_ENGINES and engine configuration.";
     }
+
     if (/FFmpeg|FFprobe/i.test(messages) && /not installed|unavailable|ENOENT/i.test(messages)) {
         return "FFmpeg or FFprobe is unavailable. Reinstall dependencies or configure FFMPEG_PATH and FFPROBE_PATH.";
     }
+
     if (/gallery-dl is unavailable/i.test(messages) && attempts.length === 1) {
         return "gallery-dl is unavailable. Set GALLERY_DL_PATH to an installed binary, or use the Worker Docker image.";
     }
+
     if (outputType !== "auto" && /contains image media, not video|returned image media/i.test(messages)) {
         return "The source is an image. Choose image output and try again.";
     }
+
     if (source.instagram && /account authentication|cookies|login required/i.test(messages)) {
         return "Could not retrieve media from this source. Try another link or try again later.";
     }
+
     if (/HTTP (?:Error )?403|forbidden|blocked this server's network address|your IP address is blocked/i.test(messages)) {
         return "This source blocked automated access from the worker's network address, and no enabled engine could extract its media. Try a direct media URL or another source.";
     }
+
     if (/unsupported url|no suitable extractor/i.test(messages)) {
         return "This site or URL is not supported by the enabled download engines.";
     }
+
     if (/rate.?limit|too many requests|HTTP 429/i.test(messages)) {
         return "The source or a configured download service is rate-limiting requests. Try again later.";
     }
+
     const outputLabel = outputType === "auto" ? "media" : outputType;
+
     return `No playable ${outputLabel} came back after trying: ${engines}. The post may be unavailable, expired, or unsupported.`;
 }
 
@@ -94,6 +104,7 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
 
     async function commitResult(artifact, method, metadata, recovered) {
         options.signal?.throwIfAborted();
+
         return {
             ...(await commitMediaCollection(artifact, jobDir)),
             method,
@@ -105,6 +116,7 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
 
     async function selectResult(artifact, method, metadata, recovered, index) {
         if (artifact.items) return await commitResult(artifact, method, metadata, recovered);
+
         if (silentFallback) {
             if (artifact.mediaKind !== "video" || !artifact.mediaInfo?.hasAudio) return null;
         } else if (
@@ -116,16 +128,22 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
         ) {
             silentFallback = { artifact, method, metadata, recovered };
             log.info(`Trying yt-dlp for an audio-bearing version of the ${method} video.`);
+
             return null;
         }
+
         return await commitResult(artifact, method, metadata, recovered);
     }
 
     for (const [index, engineName] of plan.entries()) {
         options.signal?.throwIfAborted();
+
         if (silentFallback && engineName !== "yt-dlp") continue;
+
         const engine = engineRegistry.get(engineName);
+
         if (!engine) continue;
+
         const attemptDir = path.join(jobDir, `attempt-${String(index + 1).padStart(2, "0")}-${engineName}`);
         await fs.mkdir(attemptDir, { recursive: true });
         const startedAt = performance.now();
@@ -153,9 +171,11 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
             const validated = candidate.items
                 ? await validateMediaCollection(candidate.items, { outputType, maxBytes, signal: options.signal })
                 : await validateArtifact(candidate, { outputType, maxBytes, preferredName: candidate.fileName, signal: options.signal });
+
             if ((validated.items?.length ?? 1) < expectedItems) {
                 throw collectionFailure(new Error("The engine returned only part of the Instagram post."));
             }
+
             const result = await selectResult(
                 { ...candidate, ...validated },
                 candidate.method || engineName,
@@ -163,12 +183,16 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
                 Boolean(candidate.recoveredFromProcessError),
                 index,
             );
+
             if (result) return result;
         } catch (error) {
             options.signal?.throwIfAborted();
+
             if (error instanceof UserFacingError && error.stopFallback) {
                 if (["PRIVATE_URL", "INVALID_URL", "TEMP_LIMIT"].includes(error.code)) throw error;
+
                 if (!silentFallback) throw error;
+
                 attempts.push({
                     engine: engineName,
                     error: compactEngineError(error.message),
@@ -181,12 +205,16 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
                 collectionAttempt || expectedItems > 1 || error.incompleteCollection
                     ? null
                     : await recoverArtifact(attemptDir, { outputType, maxBytes, signal: options.signal });
+
             if (recovered) {
                 const result = await selectResult(recovered, engineName, null, true, index);
+
                 if (result) {
                     log.warn(`${engineName} failed after producing a valid artifact; committing the artifact and stopping fallback.`);
+
                     return result;
                 }
+
                 continue;
             }
 
@@ -198,8 +226,10 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
     }
 
     options.signal?.throwIfAborted();
+
     if (silentFallback) {
         log.info("No audio-bearing alternative was found; keeping the original silent video.");
+
         return await commitResult(silentFallback.artifact, silentFallback.method, silentFallback.metadata, silentFallback.recovered);
     }
 
@@ -208,6 +238,7 @@ export async function downloadMedia(rawUrl, jobDir, options = {}) {
         stopFallback: unsupported,
     });
     error.attempts = attempts;
+
     throw error;
 }
 
