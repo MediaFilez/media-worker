@@ -50,7 +50,7 @@ The public quality choices are controlled variant IDs: `best`, `1080p`, `720p`, 
 
 No output size limit is applied unless the job supplies `output.maxBytes`. `MAX_DOWNLOAD_SIZE` is an operator-controlled ceiling for every source transfer and defaults to 5 GB. Batch jobs also share the `MAX_BATCH_TOTAL_SIZE` aggregate ceiling, which defaults to 10 GB.
 
-Instagram tries VideoDropper first using its encrypted URL protocol. Its resolver has a 20-second deadline, and media transfers keep the existing DNS, redirect, byte-limit and artifact checks. Provider failures continue through the existing Instagram engine order. `INSTAGRAM_PROXY_FIRST` puts that proxy after VideoDropper; `DISABLED_ENGINES=videodropper` omits the new engine. This uses public media URLs and sends no Instagram cookies or worker credentials to VideoDropper.
+Instagram uses the configured local extractors, optional embed proxies, and Cobalt instances. `INSTAGRAM_PROXY_FIRST` prefers the configured proxy for video and auto output. Set `INSTAGRAM_PROXY_HOSTS=none` to disable that proxy. Source-platform cookies and worker credentials are not sent to public embed proxies.
 
 ## Jobs
 
@@ -147,3 +147,13 @@ For a split API/Worker deployment, use `compose.production.yaml`. It joins the A
 `YOUTUBE_JS_ENABLED` is disabled by default because youtubei.js needs a separately configured JavaScript evaluator. Leave it disabled unless that evaluator is installed. When the cookie file contains a valid YouTube session, set `YTDLP_COOKIES_FOR_YOUTUBE=true` to avoid avoidable login challenges.
 
 The command-line fallbacks use one retry and a 15-second connection timeout by default. gallery-dl also has a 30-second total process guard so an extractor that hangs cannot hold a job indefinitely. These settings keep blocked or unavailable sources moving to the next engine quickly while still allowing a transient retry. Tune `YTDLP_RETRIES`, `YTDLP_SOCKET_TIMEOUT_SECONDS`, `GALLERY_DL_RETRIES`, `GALLERY_DL_HTTP_TIMEOUT_SECONDS`, and `GALLERY_DL_TIMEOUT_MS` for slower sources.
+
+## Terms, privacy, and security
+
+Read [Terms of Service](TERMS_OF_SERVICE.md), [Privacy Policy](PRIVACY_POLICY.md), and [Security policy](SECURITY.md) before operating a hosted deployment. The notices distinguish the standalone bot, account API, and worker storage. Configure provider permissions, retention/deletion procedures, and deployment isolation for the services you actually run. The documents do not certify a deployment or remove mandatory legal obligations.
+
+## Optional Grabfy resolver
+
+Grabfy is disabled by default. In the executing bot or worker, set `GRABFY_ENABLED=true` only after reviewing [provider terms](https://grabfy.com/terms-of-service/) and [privacy](https://grabfy.com/privacy-policy/) and establishing permission for the intended API/bot use. Enabled Grabfy is preferred for Instagram posts/Reels; `DISABLED_ENGINES=grabfy` also removes it from the plan. `GRABFY_TIMEOUT_MS` bounds resolution (default 20000, configurable 1000–60000 ms); existing job/transfer deadlines and aggregate limits still apply. Every selected carousel item is validated and downloaded in provider order. Query tracking parameters, source-platform cookies and application credentials are not sent to the resolver.
+
+The API process does not run download engines; configure the Worker deployment that executes its jobs. Changing API environment variables alone does not enable this feature. Grabfy has no independently verified API license, retention schedule or security audit in this integration. Read the updated service policies before enabling it.
