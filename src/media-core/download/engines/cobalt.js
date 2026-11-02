@@ -1,10 +1,13 @@
 import http from "node:http";
+import fs from "node:fs/promises";
+import path from "node:path";
 import https from "node:https";
 import { config } from "../../config.js";
-import { DownloadMethodError } from "../../utils/errors.js";
+import { DownloadMethodError, userError } from "../../utils/errors.js";
 import { assertPublicHttpUrl, publicDnsLookup } from "../../utils/security.js";
 import { preferredVideoHeight } from "../videoQuality.js";
 import { downloadDirectHttp } from "./directHttp.js";
+import { isInstagramPost, MAX_COLLECTION_ITEMS, validateMediaCollection, collectionFailure } from "../collection.js";
 import { publicFetch } from "../../utils/publicFetch.js";
 
 let directoryCache = { expiresAt: 0, data: null };
@@ -37,6 +40,7 @@ const DIRECTORY_SERVICE_HOSTS = [
 
 function uniqueEndpoints(values) {
     const result = new Set();
+
     for (const value of values) {
         try {
             result.add(new URL(value).href.replace(/\/$/, ""));
@@ -44,6 +48,7 @@ function uniqueEndpoints(values) {
             /* Invalid setting. */
         }
     }
+
     return [...result];
 }
 
@@ -53,6 +58,7 @@ function normalizeServiceName(value) {
 
 function directoryServiceForUrl(rawUrl) {
     let host;
+
     try {
         host = new URL(rawUrl).hostname.toLowerCase();
     } catch {
@@ -64,8 +70,11 @@ function directoryServiceForUrl(rawUrl) {
 
 function addDirectoryEndpoint(services, service, endpoint) {
     if (typeof endpoint !== "string") return;
+
     const key = normalizeServiceName(service);
+
     if (!services.has(key)) services.set(key, []);
+
     services.get(key).push(endpoint);
 }
 
@@ -76,11 +85,14 @@ function directoryServices(response) {
     if (Array.isArray(data)) {
         for (const instance of data) {
             if (!instance?.api || instance.online === false || instance.turnstile === true) continue;
+
             const endpoint = /^https?:\/\//i.test(instance.api) ? instance.api : `https://${instance.api}`;
+
             for (const [service, result] of Object.entries(instance.tests ?? {})) {
                 if (result?.status) addDirectoryEndpoint(services, service, endpoint);
             }
         }
+
         return services;
     }
 
@@ -89,6 +101,7 @@ function directoryServices(response) {
             addDirectoryEndpoint(services, service, endpoint);
         }
     }
+
     return services;
 }
 
@@ -116,6 +129,7 @@ export function selectCobaltDirectoryEndpoints(response, rawUrl) {
  */
 async function directoryEndpoints(signal, rawUrl, fetchDirectory = publicFetch) {
     if (!config.cobaltDirectoryEnabled) return [];
+
     if (directoryCache.expiresAt > Date.now()) {
         return selectCobaltDirectoryEndpoints(directoryCache.data, rawUrl);
     }
@@ -132,8 +146,10 @@ async function directoryEndpoints(signal, rawUrl, fetchDirectory = publicFetch) 
 
         if (!response.ok) {
             await closeResponse(response);
+
             return [];
         }
+
         const data = await readBoundedJsonResponse(response, MAX_COBALT_JSON_BYTES, "cobalt-directory");
         directoryCache = { expiresAt: Date.now() + 30 * 60_000, data };
 
@@ -152,6 +168,7 @@ async function directoryEndpoints(signal, rawUrl, fetchDirectory = publicFetch) 
  */
 export function cobaltRequestPayload(rawUrl, outputType, targetBytes, maxHeight) {
     const preferredHeight = ["auto", "video"].includes(outputType) ? maxHeight || preferredVideoHeight(targetBytes) : null;
+
     return {
         url: rawUrl,
         videoQuality: preferredHeight ? String(preferredHeight) : "max",
@@ -169,50 +186,65 @@ export function cobaltRequestPayload(rawUrl, outputType, targetBytes, maxHeight)
 
 export function cobaltRequestHeaders(trustedEndpoint) {
     const result = { accept: "application/json", "content-type": "application/json", "user-agent": config.userAgent };
+
     if (trustedEndpoint && config.cobaltApiKey) {
         result.authorization = `${config.cobaltAuthScheme} ${config.cobaltApiKey}`;
     }
+
     return result;
 }
 
 function responseHeader(response, name) {
     if (typeof response.headers?.get === "function") return response.headers.get(name);
+
     const value = response.headers?.[name.toLowerCase()];
+
     return Array.isArray(value) ? value[0] : (value ?? null);
 }
 
 async function closeResponse(response) {
     if (typeof response.destroy === "function") {
         response.destroy();
+
         return;
     }
+
     await response.body?.cancel().catch(() => {});
 }
 
 export async function readBoundedJsonResponse(response, maxBytes, method) {
     const declaredSize = Number.parseInt(responseHeader(response, "content-length") || "0", 10);
+
     if (declaredSize > maxBytes) {
         await closeResponse(response);
+
         throw new DownloadMethodError(method, `The response exceeded ${maxBytes} bytes.`);
     }
 
     const chunks = [];
     let size = 0;
     const body = response.body ?? response;
+
     if (!body) throw new DownloadMethodError(method, "The response had no body.");
+
     for await (const chunk of body) {
         size += chunk.byteLength;
+
         if (size > maxBytes) {
             await closeResponse(response);
+
             throw new DownloadMethodError(method, `The response exceeded ${maxBytes} bytes.`);
         }
+
         chunks.push(Buffer.from(chunk));
     }
+
     return JSON.parse(Buffer.concat(chunks, size).toString("utf8"));
 }
 
 function requestCobaltEndpoint(endpointUrl, requestBody, signal, trustedEndpoint) {
     const transport = endpointUrl.protocol === "https:" ? https : http;
+
     return new Promise((resolve, reject) => {
         const request = transport.request(
             endpointUrl,
@@ -232,18 +264,35 @@ function requestCobaltEndpoint(endpointUrl, requestBody, signal, trustedEndpoint
     });
 }
 
-function mediaFromResponse(data, outputType) {
+function mediaFromResponse(data, outputType, collect) {
     if (typeof data?.url === "string") return { url: data.url, fileName: data.filename };
+
     if (outputType === "audio" && typeof data?.audio === "string") {
         return { url: data.audio, fileName: data.audioFilename || data.filename };
     }
+
     const picker = Array.isArray(data?.picker) ? data.picker : [];
+
+    if (collect && picker.length) {
+        if (picker.length > MAX_COLLECTION_ITEMS) {
+            throw userError(`The post exceeds the ${MAX_COLLECTION_ITEMS}-file limit.`, "COLLECTION_TOO_LARGE", { stopFallback: true });
+        }
+
+        const selected = ["video", "audio"].includes(outputType)
+            ? picker.filter((item) => !item?.type || (outputType === "video" ? ["video", "gif"] : ["video", "audio"]).includes(item.type))
+            : picker;
+
+        return selected.map((item) => ({ url: item?.url, fileName: item?.filename || data.filename }));
+    }
 
     const preferred =
         picker.find((item) => {
             if (!item?.url) return false;
+
             if (["image", "thumbnail"].includes(outputType)) return ["photo", "image"].includes(item.type);
+
             if (outputType === "audio") return item.type === "audio";
+
             return ["video", "gif"].includes(item.type) || !item.type;
         }) || picker.find((item) => item?.url);
 
@@ -253,7 +302,9 @@ function mediaFromResponse(data, outputType) {
 function availableEndpoints(endpoints) {
     const now = Date.now();
     const available = endpoints.filter((endpoint) => (endpointCooldowns.get(endpoint) ?? 0) <= now);
+
     if (available.length > 0) return available;
+
     return [...endpoints].sort((left, right) => (endpointCooldowns.get(left) ?? 0) - (endpointCooldowns.get(right) ?? 0));
 }
 
@@ -268,6 +319,7 @@ function cobaltMessage(data, status) {
 
 async function callEndpoint(endpoint, rawUrl, attemptDir, options, trustedEndpoint) {
     let endpointUrl;
+
     try {
         endpointUrl = await assertPublicHttpUrl(endpoint, {
             trustedOrigins: trustedEndpoint ? [new URL(endpoint).origin] : [],
@@ -277,6 +329,7 @@ async function callEndpoint(endpoint, rawUrl, attemptDir, options, trustedEndpoi
             cause: error,
         });
     }
+
     const signal = options.signal
         ? AbortSignal.any([options.signal, AbortSignal.timeout(config.cobaltEndpointTimeoutMs)])
         : AbortSignal.timeout(config.cobaltEndpointTimeoutMs);
@@ -287,10 +340,13 @@ async function callEndpoint(endpoint, rawUrl, attemptDir, options, trustedEndpoi
         trustedEndpoint,
     );
     const status = response.statusCode ?? 0;
+
     if ([301, 302, 303, 307, 308].includes(status)) {
         response.destroy();
+
         throw new DownloadMethodError("cobalt", "Cobalt endpoint redirects are not allowed.");
     }
+
     let data;
 
     try {
@@ -299,6 +355,7 @@ async function callEndpoint(endpoint, rawUrl, attemptDir, options, trustedEndpoi
         if (error instanceof SyntaxError) {
             throw new DownloadMethodError("cobalt", `Cobalt returned non-JSON HTTP ${status}.`);
         }
+
         throw error;
     }
 
@@ -309,23 +366,59 @@ async function callEndpoint(endpoint, rawUrl, attemptDir, options, trustedEndpoi
     if (data?.status === "local-processing")
         throw new DownloadMethodError("cobalt", "This Cobalt response requires local processing, which was disabled.");
 
-    const media = mediaFromResponse(data, options.outputType);
-    if (!media) throw new DownloadMethodError("cobalt", `Cobalt returned ${data?.status || "an unknown status"} without downloadable media.`);
+    const media = mediaFromResponse(data, options.outputType, isInstagramPost(rawUrl));
+
+    if (!media || (Array.isArray(media) && !media.length))
+        throw new DownloadMethodError("cobalt", `Cobalt returned ${data?.status || "an unknown status"} without downloadable media.`);
+
+    const collection = Array.isArray(media);
+    const candidates = collection ? media : [media];
+    const files = [];
+    let totalBytes = 0;
+
+    try {
+        for (const [index, item] of candidates.entries()) {
+            options.signal?.throwIfAborted();
+
+            if (typeof item.url !== "string" || !item.url) throw new DownloadMethodError("cobalt", "Cobalt returned an invalid media URL.");
+
+            const remaining = (options.maxBytes ?? config.maxDownloadBytes) - totalBytes;
+
+            if (remaining <= 0) throw userError("The post exceeds the aggregate download size limit.", "FILE_TOO_LARGE", { stopFallback: true });
+
+            const destination = candidates.length > 1 ? path.join(attemptDir, `item-${String(index + 1).padStart(3, "0")}`) : attemptDir;
+            await fs.mkdir(destination, { recursive: true });
+            const downloaded = await downloadDirectHttp(item.url, destination, {
+                ...options,
+                maxBytes: remaining,
+                preferredName: item.fileName,
+                methodLabel: `cobalt:${endpointUrl.hostname}`,
+                trustedOrigins: trustedEndpoint ? [endpointUrl.origin] : [],
+            });
+            totalBytes += downloaded.sizeBytes;
+            files.push(downloaded);
+        }
+    } catch (error) {
+        if (collection) options.onCollection?.(candidates.length);
+
+        if (["DNS_FAILED", "INVALID_URL", "PRIVATE_URL"].includes(error?.code)) {
+            error = new DownloadMethodError("cobalt", "Cobalt returned an unsafe media URL.", { cause: error });
+        }
+
+        throw collection ? collectionFailure(error) : error;
+    }
 
     let file;
+
     try {
-        file = await downloadDirectHttp(media.url, attemptDir, {
-            ...options,
-            preferredName: media.fileName,
-            methodLabel: `cobalt:${endpointUrl.hostname}`,
-            trustedOrigins: trustedEndpoint ? [endpointUrl.origin] : [],
-        });
+        file = collection ? await validateMediaCollection(files, options) : files[0];
     } catch (error) {
-        if (["DNS_FAILED", "INVALID_URL", "PRIVATE_URL"].includes(error?.code)) {
-            throw new DownloadMethodError("cobalt", "Cobalt returned an unsafe media URL.", { cause: error });
-        }
-        throw error;
+        options.onCollection?.(candidates.length);
+
+        throw collectionFailure(error);
     }
+
+    if (collection) options.onCollection?.(file.items?.length ?? 1);
 
     return {
         ...file,
@@ -348,19 +441,28 @@ export async function downloadWithCobalt(rawUrl, attemptDir, options = {}) {
         0,
         config.cobaltMaxEndpoints,
     );
+
     if (endpoints.length === 0) throw new DownloadMethodError("cobalt", "No Cobalt instance is configured.");
 
     const failures = [];
+    let incompleteCollection = false;
+
     for (const endpoint of availableEndpoints(endpoints)) {
         try {
             const result = await callEndpoint(endpoint, rawUrl, attemptDir, options, trustedEndpoints.has(endpoint));
             endpointCooldowns.delete(endpoint);
+
             return result;
         } catch (error) {
             if (error?.name === "AbortError" || error?.stopFallback) throw error;
+
+            incompleteCollection ||= Boolean(error.incompleteCollection);
             endpointCooldowns.set(endpoint, Date.now() + config.cobaltFailureCooldownMs);
             failures.push(`${new URL(endpoint).hostname}: ${error.publicMessage || error.message}`);
         }
     }
-    throw new DownloadMethodError("cobalt", failures.slice(0, 3).join(" | "));
+
+    const error = new DownloadMethodError("cobalt", failures.slice(0, 3).join(" | "));
+
+    throw incompleteCollection ? collectionFailure(error) : error;
 }
