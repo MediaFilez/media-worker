@@ -18,21 +18,27 @@ export async function createEngineProxy(options = {}) {
         // disconnected extractor can emit EPIPE while upstream is still piping.
         socket.on("error", () => socket.destroy());
         socket.once("close", () => sockets.delete(socket));
+
         return socket;
     };
     async function target(rawUrl) {
         const url = await assertPublicHttpUrl(rawUrl, options);
         const host = url.hostname.replace(/^\[|\]$/g, "");
         const records = net.isIP(host) ? [{ address: host }] : await abortableLookup(host, options.signal);
+
         if (!records.length || (!(options.trustedHosts ?? []).includes(host) && records.some(({ address }) => isBlockedAddress(address)))) {
             throw userError("Extractor destination is private or reserved.", "PRIVATE_URL", { stopFallback: true });
         }
+
         options.signal?.throwIfAborted();
+
         if (closed) throw new Error("Extractor proxy closed.");
+
         return { url, address: records[0].address };
     }
     function denied(error, response) {
         if (["PRIVATE_URL", "INVALID_URL"].includes(error.code)) controller.abort(error);
+
         if (response.writeHead) {
             response.writeHead(502);
             response.end("Extractor proxy refused the request.");
@@ -42,11 +48,15 @@ export async function createEngineProxy(options = {}) {
         if (request.headers["proxy-authorization"] !== authorization) {
             response.writeHead(407);
             response.end();
+
             return;
         }
+
         try {
             const { url, address } = await target(request.url);
+
             if (url.protocol !== "http:") throw new Error("Use CONNECT for HTTPS.");
+
             const headers = { ...request.headers, host: url.host };
             delete headers["proxy-authorization"];
             delete headers["proxy-connection"];
@@ -76,17 +86,22 @@ export async function createEngineProxy(options = {}) {
     server.on("connect", async (request, socket, head) => {
         if (request.headers["proxy-authorization"] !== authorization) {
             socket.end("HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
+
             return;
         }
+
         try {
             if (!/^(?:\[[0-9a-f:]+\]|[a-z0-9.-]+):[0-9]+$/i.test(request.url))
                 throw userError("Invalid extractor tunnel destination.", "INVALID_URL", { stopFallback: true });
+
             const { url, address } = await target(`https://${request.url}/`);
             const upstream = track(net.connect({ host: address, port: Number(url.port || 443) }));
             upstream.setTimeout(60_000, () => upstream.destroy());
             upstream.once("connect", () => {
                 socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+
                 if (head.length) upstream.write(head);
+
                 socket.pipe(upstream);
                 upstream.pipe(socket);
             });
@@ -104,6 +119,7 @@ export async function createEngineProxy(options = {}) {
         server.once("error", reject);
         server.listen(0, "127.0.0.1", resolve);
     });
+
     return {
         url: `http://worker:${credential}@127.0.0.1:${server.address().port}`,
         signal: controller.signal,
@@ -120,10 +136,12 @@ export async function withEngineProxy(signal, callback) {
     signal?.throwIfAborted();
     const proxy = await createEngineProxy({ signal });
     const combined = AbortSignal.any([proxy.signal, ...(signal ? [signal] : [])]);
+
     try {
         return await callback(proxy.url, combined);
     } catch (error) {
         combined.throwIfAborted();
+
         throw error;
     } finally {
         await proxy.close();

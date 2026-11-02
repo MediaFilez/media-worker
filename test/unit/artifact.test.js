@@ -12,10 +12,12 @@ test("rejects HTML disguised as an image, including during artifact recovery", a
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const filePath = path.join(dir, "error.jpg");
     await fs.writeFile(filePath, "<html><body>Access denied</body></html>");
+
     for (const outputType of ["auto", "image", "thumbnail"]) {
         await assert.rejects(validateArtifact({ filePath, mime: "image/jpeg" }, { outputType }), /signature|recognized/i);
         assert.equal(await recoverArtifact(dir, { outputType }), null);
     }
+
     const valid = path.join(dir, "real.jpg");
     await fs.writeFile(valid, PNG);
     const recovered = await recoverArtifact(dir, { outputType: "image" });

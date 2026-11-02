@@ -31,12 +31,14 @@ export function createMediaCore(): MediaCore {
     return {
         async resolveMedia(url, options = {}) {
             const outputType = options.quality === "audio-only" ? "audio" : (options.outputType ?? "auto");
+
             return { url, outputType, engines: planEngines(url, outputType) };
         },
 
         async downloadMedia(url, destinationDir, options = {}) {
             const outputType = options.quality === "audio-only" ? "audio" : (options.outputType ?? "auto");
             const maxHeight = options.quality ? qualityHeights[options.quality] : undefined;
+
             return (await runDownload(url, destinationDir, {
                 outputType,
                 maxBytes: options.maxBytes,
@@ -49,9 +51,11 @@ export function createMediaCore(): MediaCore {
         async inspectMedia(filePath, preferredName) {
             const artifact = (await describeFile(filePath, preferredName)) as MediaArtifact;
             let mediaInfo: MediaInfo | null = null;
+
             if (artifact.mediaKind === "video" || artifact.mediaKind === "audio") {
                 mediaInfo = (await getMediaInfo(filePath).catch(() => null)) as MediaInfo | null;
             }
+
             return { ...artifact, mediaInfo };
         },
 

@@ -10,6 +10,7 @@ import { validateArtifact } from "../../src/media-core/download/artifact.js";
 
 test("original audio extraction preserves encoded AAC packets and sample rate", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-original-audio-"));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const input = path.join(dir, "source.mp4");
@@ -46,6 +47,7 @@ test("original audio extraction preserves encoded AAC packets and sample rate", 
 
 test("requested MP3 passes through an already validated MP3 without transcoding", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-mp3-copy-"));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const input = path.join(dir, "source.mp3");
@@ -60,6 +62,7 @@ test("requested MP3 passes through an already validated MP3 without transcoding"
 
 test("job-scoped FFprobe cache reuses unchanged files and invalidates replacements", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-probe-cache-"));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const input = path.join(dir, "source.wav");
@@ -78,6 +81,7 @@ test("job-scoped FFprobe cache reuses unchanged files and invalidates replacemen
 
 test("converts audio to requested MP3 without requiring size compression", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-mp3-"));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const input = path.join(dir, "source.wav");
@@ -90,12 +94,14 @@ test("converts audio to requested MP3 without requiring size compression", async
         extension: "wav",
         isAudioOnly: true,
     };
+
     for (const maxOutputBytes of [undefined, 100_000]) {
         const output = await processMedia(value, { outputType: "audio", format: "mp3", tempDir: dir, maxOutputBytes, allowCompression: false });
         assert.equal(output.extension, "mp3");
         assert.match(output.note, /converted to MP3/);
         assert.equal((await getMediaInfo(output.filePath)).hasAudio, true);
     }
+
     await assert.rejects(
         processMedia(value, { outputType: "audio", format: "mp3", tempDir: dir, maxOutputBytes: 1, allowCompression: false }),
         (error) => error.code === "FILE_TOO_LARGE",
@@ -104,6 +110,7 @@ test("converts audio to requested MP3 without requiring size compression", async
 
 test("extracts an image from a sub-second video", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-short-video-"));
     const input = path.join(dir, "short.mp4");
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
@@ -115,6 +122,7 @@ test("extracts an image from a sub-second video", async (t) => {
 
 test("auto fits low-bitrate video and reports transcoding progress", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-fit-"));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const input = path.join(dir, "source.mp4");
@@ -173,6 +181,7 @@ test("auto fits low-bitrate video and reports transcoding progress", async (t) =
 
 test("auto fits oversized audio instead of rejecting the original", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-audio-fit-"));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const input = path.join(dir, "source.wav");
@@ -205,6 +214,7 @@ test("auto fits oversized audio instead of rejecting the original", async (t) =>
 
 test("original audio output preserves Opus from a WebM video", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-webm-audio-"));
     const input = path.join(dir, "source.webm");
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
@@ -254,6 +264,7 @@ test("original audio output preserves Opus from a WebM video", async (t) => {
 
 test("auto fits oversized images instead of rejecting the original", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-image-fit-"));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const input = path.join(dir, "source.bmp");
@@ -285,6 +296,7 @@ test("auto fits oversized images instead of rejecting the original", async (t) =
 
 test("image fitting rejects unsafe decoded dimensions", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-image-dimensions-"));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const input = path.join(dir, "extreme.png");
@@ -298,6 +310,7 @@ test("image fitting rejects unsafe decoded dimensions", async (t) => {
 
 test("image fitting caps both output dimensions", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-image-aspect-"));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const input = path.join(dir, "tall.png");

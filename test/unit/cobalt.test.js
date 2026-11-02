@@ -40,6 +40,7 @@ test("Cobalt configured instance cannot redirect to another private port", async
     });
     const endpoint = http.createServer((req, res) => {
         res.setHeader("content-type", "application/json");
+
         if (req.method === "POST") res.end(JSON.stringify({ status: "tunnel", url: `http://127.0.0.1:${endpoint.address().port}/tunnel` }));
         else res.writeHead(302, { location: `http://127.0.0.1:${internal.address().port}/private.png` }).end();
     });
@@ -153,8 +154,10 @@ test("does not trust private endpoints supplied by the Cobalt directory", async 
             const endpoint = `http://127.0.0.1:${server.address().port}/process`;
             response.writeHead(200, { "content-type": "application/json" });
             response.end(JSON.stringify({ data: { Instagram: [endpoint] } }));
+
             return;
         }
+
         processingRequests += 1;
         response.writeHead(500).end();
     });
@@ -198,8 +201,10 @@ test("rechecks directory endpoint DNS when opening the socket", async (t) => {
                     data: { Instagram: [`http://rebind.example:${server.address().port}/process`] },
                 }),
             );
+
             return;
         }
+
         processingRequests += 1;
         response.writeHead(500).end();
     });
@@ -213,8 +218,10 @@ test("rechecks directory endpoint DNS when opening the socket", async (t) => {
     dns.lookup = (hostname, options, callback) => {
         if (hostname === "rebind.example") {
             callback(null, [{ address: "127.0.0.1", family: 4 }]);
+
             return;
         }
+
         originalLookup(hostname, options, callback);
     };
     t.after(() => {
@@ -253,6 +260,7 @@ test("downloads a Cobalt tunnel from a configured private instance", async (t) =
     const requests = [];
     const server = http.createServer((request, response) => {
         requests.push(`${request.method} ${request.url}`);
+
         if (request.method === "POST") {
             const base = `http://127.0.0.1:${server.address().port}`;
             response.writeHead(200, { "content-type": "application/json" });
@@ -264,8 +272,10 @@ test("downloads a Cobalt tunnel from a configured private instance", async (t) =
                     metadata: { title: "Fixture", artist: "Test" },
                 }),
             );
+
             return;
         }
+
         response.writeHead(200, { "content-type": "image/png", "content-length": PNG.length });
         response.end(PNG);
     });
@@ -305,12 +315,15 @@ test("cools down a failed Cobalt endpoint while another endpoint works", async (
     });
     const working = http.createServer((request, response) => {
         workingRequests += 1;
+
         if (request.method === "POST") {
             const base = `http://127.0.0.1:${working.address().port}`;
             response.writeHead(200, { "content-type": "application/json" });
             response.end(JSON.stringify({ status: "tunnel", url: `${base}/media.png`, filename: "result.png" }));
+
             return;
         }
+
         response.writeHead(200, { "content-type": "image/png", "content-length": PNG.length });
         response.end(PNG);
     });
@@ -352,12 +365,15 @@ test("keeps a healthy primary Cobalt endpoint ahead of its fallback", async (t) 
     function workingServer(increment) {
         return http.createServer((request, response) => {
             increment();
+
             if (request.method === "POST") {
                 const base = `http://127.0.0.1:${request.headers.host.split(":")[1]}`;
                 response.writeHead(200, { "content-type": "application/json" });
                 response.end(JSON.stringify({ status: "tunnel", url: `${base}/media.png`, filename: "result.png" }));
+
                 return;
             }
+
             response.writeHead(200, { "content-type": "image/png", "content-length": PNG.length });
             response.end(PNG);
         });

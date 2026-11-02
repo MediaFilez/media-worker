@@ -14,10 +14,13 @@ export async function createArchive(
     options: { signal?: AbortSignal; maxBytes?: number } = {},
 ): Promise<MediaArtifact> {
     if (files.length === 0) throw new TypeError("Cannot create an empty archive.");
+
     options.signal?.throwIfAborted();
+
     if (options.maxBytes !== undefined && (!Number.isSafeInteger(options.maxBytes) || options.maxBytes <= 0)) {
         throw new TypeError("Archive maxBytes must be a positive safe integer.");
     }
+
     await fsPromises.mkdir(path.dirname(outputPath), { recursive: true });
 
     const archive = archiver("zip", { zlib: { level: 6 } });
@@ -32,10 +35,13 @@ export async function createArchive(
     const limiter = new Transform({
         transform(chunk, _encoding, callback) {
             bytes += chunk.byteLength;
+
             if (options.maxBytes !== undefined && bytes > options.maxBytes) {
                 callback(userError("The ZIP exceeds the configured aggregate size limit.", "BATCH_TOO_LARGE", { stopFallback: true }));
+
                 return;
             }
+
             callback(null, chunk);
         },
     });
@@ -45,16 +51,21 @@ export async function createArchive(
 
     try {
         const names = new Set<string>();
+
         for (const file of files) {
             const baseName = makeSafeFileName(path.posix.basename(file.fileName.replaceAll("\\", "/")), "media", file.extension);
             let name = baseName;
+
             for (let suffix = 2; names.has(name); suffix += 1) name = `${suffix}-${baseName}`;
+
             names.add(name);
             archive.file(file.filePath, { name });
         }
+
         completion = pipeline(archive, limiter, output, { signal: options.signal });
         await Promise.all([completion, archive.finalize()]);
         const stat = await fsPromises.stat(outputPath);
+
         return {
             filePath: outputPath,
             fileName: path.basename(outputPath),
@@ -70,7 +81,9 @@ export async function createArchive(
         output.destroy();
         await completion?.catch(() => undefined);
         await finished(output).catch(() => undefined);
+
         if (created) await fsPromises.rm(outputPath, { force: true }).catch(() => undefined);
+
         throw error;
     } finally {
         options.signal?.removeEventListener("abort", abort);

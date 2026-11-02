@@ -29,6 +29,7 @@ test("real Redis: redelivery recovery, cancellation and failed control connectio
         core: {
             downloadMedia: async () => {
                 downloads++;
+
                 return { filePath: source, fileName: "source.png", sizeBytes: 7, mime: "image/png", mediaKind: "image", extension: "png" };
             },
         },

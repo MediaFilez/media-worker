@@ -28,16 +28,19 @@ test("executes a serializable download job through Core and storage", async (t) 
             await fs.mkdir(directory, { recursive: true });
             const filePath = path.join(directory, "clip.mp4");
             await fs.writeFile(filePath, "data");
+
             return artifact(filePath);
         },
         async processMedia(value) {
             calls.push("process");
+
             return value;
         },
     };
     const storage = {
         async put(value) {
             calls.push("store");
+
             return {
                 key: "result/clip.mp4",
                 sizeBytes: value.sizeBytes,
@@ -75,6 +78,7 @@ test("stores a public video thumbnail without changing the original artifact", a
         async downloadMedia(_url, directory) {
             const filePath = path.join(directory, "clip.mp4");
             await fs.writeFile(filePath, "data");
+
             return artifact(filePath);
         },
         async processMedia(value, options) {
@@ -82,6 +86,7 @@ test("stores a public video thumbnail without changing the original artifact", a
             assert.equal(options.maxOutputBytes, 2 * 1024 * 1024);
             assert.equal(options.allowCompression, true);
             calls.push("thumbnail");
+
             return { ...value, fileName: "thumbnail.jpg", mime: "image/jpeg", mediaKind: "image", sizeBytes: 2 };
         },
     };
@@ -89,6 +94,7 @@ test("stores a public video thumbnail without changing the original artifact", a
         async put(value, options) {
             calls.push(value.fileName);
             assert.equal(options.public, true);
+
             return {
                 key: `2026-09-27/${value.fileName}`,
                 fileName: value.fileName,
@@ -113,6 +119,7 @@ test("delivers the original public video when thumbnail extraction fails", async
         async downloadMedia(_url, directory) {
             const filePath = path.join(directory, "clip.mp4");
             await fs.writeFile(filePath, "data");
+
             return artifact(filePath);
         },
         async processMedia() {
@@ -139,10 +146,13 @@ test("retries a transient failure but not malformed jobs", async (t) => {
         inspectMedia: async () => ({}),
         async downloadMedia(_url, directory) {
             attempts += 1;
+
             if (attempts === 1) throw new Error("temporary upstream failure");
+
             await fs.mkdir(directory, { recursive: true });
             const filePath = path.join(directory, "clip.mp4");
             await fs.writeFile(filePath, "data");
+
             return artifact(filePath);
         },
         async processMedia(value) {
@@ -183,6 +193,7 @@ test("creates batch item directories before checking disk space", async (t) => {
         async downloadMedia(_url, directory) {
             const filePath = path.join(directory, "clip.mp4");
             await fs.writeFile(filePath, "data");
+
             return artifact(filePath);
         },
         async processMedia(value) {

@@ -20,16 +20,21 @@ export async function executeBatchJob(
     context.signal.throwIfAborted();
     const storageOptions = { signal: context.signal, identity: storageIdentity(job, "archive") };
     const existing = await dependencies.storage.find?.(storageOptions);
+
     if (existing) return { archive: existing, items: [] };
+
     const artifacts: MediaArtifact[] = [];
     let totalBytes = 0;
+
     for (const [index, item] of job.items.entries()) {
         context.signal.throwIfAborted();
         const itemDir = path.join(jobDir, `item-${String(index + 1).padStart(3, "0")}`);
         const remainingBytes = config.maxBatchBytes - totalBytes;
+
         if (remainingBytes <= 0) {
             throw userError("The batch exceeds the configured aggregate size limit.", "BATCH_TOO_LARGE", { stopFallback: true });
         }
+
         await assertTempDiskSpace(jobDir, Math.min(remainingBytes, config.maxBatchBytes));
         const artifact = await downloadAndProcess(
             {
@@ -45,6 +50,7 @@ export async function executeBatchJob(
         const downloaded = artifact.items ?? [artifact];
         artifacts.push(...downloaded);
         totalBytes += downloaded.reduce((sum, item) => sum + item.sizeBytes, 0);
+
         if (totalBytes > config.maxBatchBytes) {
             throw userError("The processed batch exceeds the configured aggregate size limit.", "BATCH_TOO_LARGE", { stopFallback: true });
         }
@@ -56,5 +62,6 @@ export async function executeBatchJob(
     const archive = await createArchive(artifacts, path.join(jobDir, archiveName), { signal: context.signal, maxBytes: config.maxBatchBytes });
     await context.onProgress?.({ phase: "storing", detail: "Storing ZIP archive" });
     context.signal.throwIfAborted();
+
     return { archive: await dependencies.storage.put(archive, storageOptions), items: artifacts };
 }

@@ -15,7 +15,9 @@ const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32, maxFreeSoc
 
 function parseContentDisposition(value) {
     if (!value) return null;
+
     const encoded = value.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+
     if (encoded) {
         try {
             return decodeURIComponent(encoded.replace(/^"|"$/g, ""));
@@ -23,13 +25,17 @@ function parseContentDisposition(value) {
             return encoded;
         }
     }
+
     return value.match(/filename="?([^";]+)"?/i)?.[1]?.trim() ?? null;
 }
 
 function fallbackName(url, contentType) {
     const base = path.basename(url.pathname);
+
     if (base && base !== "/") return base;
+
     const extension = extensionFromMime(contentType);
+
     return `download-${randomUUID().slice(0, 8)}${extension ? `.${extension}` : ""}`;
 }
 
@@ -38,6 +44,7 @@ function transferController(parentSignal, responseTimeoutMs) {
     let reason = null;
     const abortFromParent = () => controller.abort(parentSignal.reason);
     parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+
     if (parentSignal?.aborted) abortFromParent();
 
     let timer = setTimeout(() => {
@@ -58,6 +65,7 @@ function transferController(parentSignal, responseTimeoutMs) {
                 }, idleTimeoutMs);
             };
             reset();
+
             return reset;
         },
         dispose() {
@@ -69,22 +77,31 @@ function transferController(parentSignal, responseTimeoutMs) {
 
 function isConnectionCloseError(error) {
     if (!error) return false;
+
     const closeCodes = new Set(["UND_ERR_SOCKET", "ECONNRESET", "EPIPE", "ERR_STREAM_PREMATURE_CLOSE"]);
+
     if (error.name === "SocketError" || closeCodes.has(error.code)) return true;
+
     if (/other side closed|premature close|terminated/i.test(error.message || "")) return true;
+
     return error.cause && error.cause !== error ? isConnectionCloseError(error.cause) : false;
 }
 
 function hasErrorCode(error, code, seen = new Set()) {
     if (!error || seen.has(error)) return false;
+
     seen.add(error);
+
     if (error.code === code) return true;
+
     if (hasErrorCode(error.cause, code, seen)) return true;
+
     return Array.isArray(error.errors) && error.errors.some((item) => hasErrorCode(item, code, seen));
 }
 
 function responseHeader(response, name) {
     const value = response.headers[name.toLowerCase()];
+
     return Array.isArray(value) ? value[0] : (value ?? null);
 }
 
@@ -133,6 +150,7 @@ export async function openPublicHttpResponse(rawUrl, options = {}) {
 
     for (let redirect = 0; redirect <= 5; redirect += 1) {
         let response;
+
         try {
             response = await requestMedia(current, {
                 signal: options.signal,
@@ -148,22 +166,31 @@ export async function openPublicHttpResponse(rawUrl, options = {}) {
                     cause: error,
                 });
             }
+
             throw error;
         }
+
         if (!REDIRECTS.has(response.statusCode)) return { response, finalUrl: current };
+
         response.destroy();
         const location = responseHeader(response, "location");
+
         if (!location) throw new DownloadMethodError("direct-http", `HTTP ${response.statusCode} redirect had no Location header.`);
+
         const next = await assertPublicHttpUrl(new URL(location, current).href, { trustedHosts, trustedOrigins, signal: options.signal });
+
         if (next.origin !== current.origin) {
             // Never forward endpoint credentials to a redirect destination.
             options = { ...options, headers: { ...options.headers } };
+
             for (const name of Object.keys(options.headers)) {
                 if (["authorization", "cookie"].includes(name.toLowerCase())) delete options.headers[name];
             }
         }
+
         current = next;
     }
+
     throw new DownloadMethodError("direct-http", "The server redirected too many times.");
 }
 
@@ -186,20 +213,27 @@ export async function downloadDirectHttp(rawUrl, attemptDir, options = {}) {
             trustedOrigins: options.trustedOrigins,
             referer: options.referer,
         });
+
         if ((response.statusCode ?? 0) < 200 || (response.statusCode ?? 0) >= 300) {
             response.destroy();
+
             throw new DownloadMethodError(method, `HTTP ${response.statusCode ?? 0} ${response.statusMessage || ""}`.trim());
         }
 
         finalContentType = responseHeader(response, "content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
         finalUrlValue = finalUrl.href;
+
         if (/text\/html|application\/xhtml/i.test(finalContentType)) {
             response.destroy();
+
             throw new DownloadMethodError(method, "The URL returned a web page instead of media.");
         }
+
         expectedBytes = Number.parseInt(responseHeader(response, "content-length") || "0", 10);
+
         if (expectedBytes > maxBytes) {
             response.destroy();
+
             throw userError(`The source file is ${formatBytes(expectedBytes)}. The limit is ${formatBytes(maxBytes)}.`, "FILE_TOO_LARGE", {
                 stopFallback: true,
             });
@@ -215,14 +249,17 @@ export async function downloadDirectHttp(rawUrl, attemptDir, options = {}) {
         partialPath = path.join(attemptDir, `${randomUUID()}.part`);
         handle = await fs.open(partialPath, "wx");
         const resetIdleTimer = transfer.startIdleTimer(options.idleTimeoutMs ?? config.httpIdleTimeoutMs);
+
         for await (const chunk of response) {
             resetIdleTimer();
             downloadedBytes += chunk.byteLength;
+
             if (downloadedBytes > maxBytes) {
                 throw userError(`The download exceeded ${formatBytes(maxBytes)}.`, "FILE_TOO_LARGE", {
                     stopFallback: true,
                 });
             }
+
             await handle.write(chunk);
             options.onProgress?.({
                 downloadedBytes,
@@ -230,12 +267,14 @@ export async function downloadDirectHttp(rawUrl, attemptDir, options = {}) {
                 percent: expectedBytes ? (downloadedBytes / expectedBytes) * 100 : null,
             });
         }
+
         await handle.close();
         handle = null;
 
         const finalPath = path.join(attemptDir, finalName);
         await fs.rename(partialPath, finalPath);
         partialPath = null;
+
         return {
             ...(await describeFile(finalPath, finalName, "download", finalContentType)),
             method,
@@ -245,10 +284,12 @@ export async function downloadDirectHttp(rawUrl, attemptDir, options = {}) {
     } catch (error) {
         await handle?.close().catch(() => {});
         handle = null;
+
         if (partialPath && expectedBytes > 0 && downloadedBytes === expectedBytes && finalName && isConnectionCloseError(error)) {
             const finalPath = path.join(attemptDir, finalName);
             await fs.rename(partialPath, finalPath);
             partialPath = null;
+
             return {
                 ...(await describeFile(finalPath, finalName, "download", finalContentType)),
                 method,
@@ -257,18 +298,25 @@ export async function downloadDirectHttp(rawUrl, attemptDir, options = {}) {
                 recoveredFromConnectionClose: true,
             };
         }
+
         if (partialPath) await fs.rm(partialPath, { force: true }).catch(() => {});
+
         if (error instanceof DownloadMethodError || error?.name === "UserFacingError") throw error;
+
         if (options.signal?.aborted) throw options.signal.reason ?? error;
+
         if (transfer.reason() === "response-timeout") {
             throw new DownloadMethodError(method, "The media server did not start responding in time.", {
                 cause: error,
             });
         }
+
         if (transfer.reason() === "idle-timeout") {
             throw new DownloadMethodError(method, "The media transfer stalled before it finished.", { cause: error });
         }
+
         const detail = error?.code ? `${error.code}: ${error.message}` : error?.message || "The connection closed unexpectedly.";
+
         throw new DownloadMethodError(method, detail, { cause: error });
     } finally {
         transfer.dispose();

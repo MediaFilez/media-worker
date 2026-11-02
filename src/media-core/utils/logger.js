@@ -16,6 +16,7 @@ function timestamp() {
 function format(level, color, args) {
     const ts = `${COLORS.gray}${timestamp()}${COLORS.reset}`;
     const tag = `${color}[${level}]${COLORS.reset}`;
+
     return [
         ts,
         tag,

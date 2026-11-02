@@ -15,8 +15,10 @@ export async function runJobFile(filePath: string): Promise<void> {
 }
 
 const entry = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;
+
 if (entry === import.meta.url) {
     const filePath = process.argv[2];
+
     if (!filePath) {
         process.stderr.write("Usage: node dist/worker.js <job.json>\n");
         process.exitCode = 2;

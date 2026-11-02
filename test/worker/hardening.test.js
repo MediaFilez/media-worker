@@ -18,6 +18,7 @@ async function fixture(t, options = {}) {
             calls.downloads += 1;
             const filePath = path.join(directory, "clip.mp4");
             await fs.writeFile(filePath, "data");
+
             return { filePath, fileName: "clip.mp4", sizeBytes: 4, mime: "video/mp4", extension: "mp4", mediaKind: "video" };
         },
         async processMedia(value) {
@@ -27,10 +28,12 @@ async function fixture(t, options = {}) {
     const storage = {
         async put(value) {
             calls.stores += 1;
+
             return { key: "result", fileName: value.fileName, sizeBytes: value.sizeBytes, contentType: value.mime, location: "memory://result" };
         },
     };
     const runtime = new WorkerRuntime({ core, storage, tempRoot: root, maxAttempts: 2, retryBaseDelayMs: 1, ...options });
+
     return { root, core, storage, runtime, calls };
 }
 
@@ -49,8 +52,10 @@ test("the whole-job deadline interrupts retry backoff", async (t) => {
     core.downloadMedia = async (...args) => {
         if (calls.downloads === 0) {
             calls.downloads += 1;
+
             throw new Error("transient");
         }
+
         return download(...args);
     };
     await assert.rejects(runtime.execute(job), { name: "TimeoutError" });
@@ -63,7 +68,9 @@ test("removes failed attempt files before retry backoff", async (t) => {
     const download = core.downloadMedia;
     core.downloadMedia = async (...args) => {
         const value = await download(...args);
+
         if (calls.downloads === 1) throw new Error("transient");
+
         return value;
     };
     const retryDirectories = [];
@@ -95,6 +102,7 @@ test("cancellation after download prevents processing and storage", async (t) =>
     core.downloadMedia = async (...args) => {
         const value = await download(...args);
         controller.abort(new DOMException("cancelled", "AbortError"));
+
         return value;
     };
     core.processMedia = async () => {
@@ -110,6 +118,7 @@ test("audio-only quality also selects audio processing for direct video", async 
     core.processMedia = async (value, options) => {
         assert.equal(options.outputType, "audio");
         processed = true;
+
         return { ...value, mediaKind: "audio", mime: "audio/mpeg", fileName: "audio.mp3" };
     };
     const result = await runtime.execute({ ...job, output: { quality: "audio-only" } });
@@ -124,6 +133,7 @@ test("rejects incompatible audio-only formats without changing contract version 
             /audio-only/,
         );
     }
+
     assert.equal(
         parseApiDownloadJob({ ...job, contractVersion: 1, userId: null, output: { quality: "audio-only", format: "mp3" } }).payload.contractVersion,
         1,
@@ -139,6 +149,7 @@ test("rejects processed batch output above the aggregate limit before storage", 
     const { runtime, core, calls } = await fixture(t);
     core.processMedia = async (value) => {
         await fs.writeFile(value.filePath, Buffer.alloc(10));
+
         return { ...value, sizeBytes: 10 };
     };
     await assert.rejects(

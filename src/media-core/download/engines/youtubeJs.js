@@ -20,22 +20,29 @@ export function getClient(createClient = () => Innertube.create({ retrieve_playe
             .then(createClient)
             .catch((error) => {
                 clientPromise = undefined;
+
                 throw error;
             });
     }
+
     return clientPromise;
 }
 
 function youtubeId(rawUrl) {
     const url = new URL(rawUrl);
+
     if (url.hostname === "youtu.be") return url.pathname.split("/").filter(Boolean)[0];
+
     if (url.pathname === "/watch") return url.searchParams.get("v");
+
     const match = url.pathname.match(/^\/(?:shorts|live|embed)\/([^/?]+)/);
+
     return match?.[1] ?? null;
 }
 
 function metadataFromInfo(info) {
     const basic = info.basic_info || {};
+
     return {
         title: basic.title,
         creator: basic.author,
@@ -54,14 +61,17 @@ export async function saveStream(stream, filePath, maxBytes, options) {
     const limiter = new Transform({
         transform(chunk, _encoding, callback) {
             bytes += chunk.byteLength;
+
             if (bytes > maxBytes) {
                 callback(
                     userError(`The source exceeded ${formatBytes(maxBytes)}.`, "FILE_TOO_LARGE", {
                         stopFallback: true,
                     }),
                 );
+
                 return;
             }
+
             options.onProgress?.({ downloadedBytes: bytes, totalBytes: null });
             callback(null, chunk);
         },
@@ -72,6 +82,7 @@ export async function saveStream(stream, filePath, maxBytes, options) {
         await fs.rename(partialPath, filePath);
     } catch (error) {
         await fs.rm(partialPath, { force: true }).catch(() => {});
+
         throw error;
     }
 }
@@ -82,6 +93,7 @@ export async function downloadWithYouTubeJs(rawUrl, attemptDir, options = {}) {
 
 export function youtubeDownloadOptions(info, options = {}) {
     if (options.outputType === "audio") return { type: "audio", quality: "best", format: "any" };
+
     const height = options.maxHeight || preferredVideoHeight(options.targetBytes);
     const formats = info.streaming_data?.formats ?? [];
     const preferred = height
@@ -89,19 +101,24 @@ export function youtubeDownloadOptions(info, options = {}) {
               .filter((format) => format.has_video && format.has_audio && format.mime_type?.includes("mp4") && format.height <= height)
               .sort((left, right) => right.height - left.height || right.bitrate - left.bitrate)[0]
         : null;
+
     return { type: "video+audio", quality: "best", format: "mp4", ...(preferred ? { itag: preferred.itag } : {}) };
 }
 
 async function downloadYouTube(rawUrl, attemptDir, options) {
     const id = youtubeId(rawUrl);
+
     if (!id) throw new DownloadMethodError("youtube-js", "The URL does not contain a YouTube video ID.");
 
     try {
         const info = await (await getClient()).getInfo(id);
         const metadata = metadataFromInfo(info);
+
         if (["image", "thumbnail"].includes(options.outputType)) {
             const thumbnailUrl = metadata.thumbnailUrl;
+
             if (!thumbnailUrl) throw new DownloadMethodError("youtube-js", "YouTube returned no thumbnail URL.");
+
             return {
                 ...(await downloadDirectHttp(thumbnailUrl, attemptDir, {
                     ...options,
@@ -128,7 +145,9 @@ async function downloadYouTube(rawUrl, attemptDir, options) {
         };
     } catch (error) {
         options.signal?.throwIfAborted();
+
         if (error?.name === "AbortError" || error?.stopFallback || error instanceof DownloadMethodError) throw error;
+
         throw new DownloadMethodError("youtube-js", error.message || "YouTube.js failed.", { cause: error });
     }
 }

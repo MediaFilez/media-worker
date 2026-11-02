@@ -10,8 +10,10 @@ const REDDIT_MEDIA_HOSTS = new Set(["i.redd.it", "preview.redd.it", "external-pr
 
 function addRedditMediaUrl(candidates, value) {
     if (!value) return;
+
     try {
         const url = new URL(decodeHtmlEntities(value));
+
         if (["http:", "https:"].includes(url.protocol) && REDDIT_MEDIA_HOSTS.has(url.hostname.toLowerCase())) {
             candidates.push(url.href);
         }
@@ -26,11 +28,16 @@ export function extractRedditPostMedia(html) {
 
     for (const tag of html.matchAll(/<(?:shreddit-screenview-data|faceplate-tracker)\b[^>]*>/gi)) {
         const encoded = tag[0].match(/\b(?:data|data-faceplate-tracking-context)="([^"]+)"/i)?.[1];
+
         if (!encoded) continue;
+
         try {
             const post = JSON.parse(decodeHtmlEntities(encoded)).post;
+
             if (!post || typeof post !== "object") continue;
+
             if (["image", "video"].includes(post.type)) mediaKind ??= post.type;
+
             addRedditMediaUrl(candidates, post.url);
         } catch {
             continue;
@@ -38,6 +45,7 @@ export function extractRedditPostMedia(html) {
     }
 
     const mediaTags = mediaKind === "video" ? /<(?:video|source)\b[^>]*>/gi : /<img\b[^>]*>/gi;
+
     for (const tag of html.matchAll(mediaTags)) {
         const source = tag[0].match(/\bsrc="([^"]+)"/i)?.[1];
         addRedditMediaUrl(candidates, source);
@@ -50,30 +58,39 @@ async function readEmbedPage(response) {
     const maxBytes = config.pageMetadataMaxBytes;
     const chunks = [];
     let size = 0;
+
     try {
         for await (const chunk of response) {
             size += chunk.byteLength;
+
             if (size > maxBytes) {
                 throw new DownloadMethodError("reddit-embed", `The Reddit embed exceeded ${maxBytes} bytes.`);
             }
+
             chunks.push(chunk);
         }
     } finally {
         response.destroy();
     }
+
     return Buffer.concat(chunks, size).toString("utf8");
 }
 
 function requireSuccessfulResponse(response) {
     if ((response.statusCode ?? 0) >= 200 && (response.statusCode ?? 0) < 300) return;
+
     response.destroy();
+
     throw new DownloadMethodError("reddit-embed", `HTTP ${response.statusCode ?? 0}`);
 }
 
 function acceptsMediaKind(outputType, mediaKind) {
     if (outputType === "auto") return ["video", "audio", "image"].includes(mediaKind);
+
     if (outputType === "video") return mediaKind === "video";
+
     if (outputType === "audio") return mediaKind !== "image";
+
     return ["image", "video"].includes(mediaKind);
 }
 
@@ -88,6 +105,7 @@ async function resolveRedditPage(rawUrl, signal) {
     if (!REDDIT_PAGE_HOSTS.has(finalUrl.hostname.toLowerCase())) {
         throw new DownloadMethodError("reddit-embed", "The share link redirected outside Reddit.");
     }
+
     return finalUrl;
 }
 
@@ -95,16 +113,20 @@ async function tryCandidate(candidate, attemptDir, options) {
     if (new URL(candidate).hostname.toLowerCase() === "v.redd.it") {
         return await downloadWithYtDlp(candidate, attemptDir, options);
     }
+
     return await downloadDirectHttp(candidate, attemptDir, { ...options, methodLabel: "reddit-embed" });
 }
 
 async function requireAcceptedCandidate(candidate, attemptDir, finalUrl, options) {
     const outputType = options.outputType ?? "video";
     const file = await tryCandidate(candidate, attemptDir, options);
+
     if (!acceptsMediaKind(outputType, file.mediaKind)) {
         await fs.rm(file.filePath, { force: true });
+
         throw new DownloadMethodError("reddit-embed", `The candidate returned ${file.mediaKind} media.`);
     }
+
     return {
         ...file,
         method: "reddit-embed",
@@ -140,16 +162,19 @@ export async function downloadFromRedditEmbed(rawUrl, attemptDir, options = {}) 
     if (media.mediaKind && !acceptsMediaKind(outputType, media.mediaKind)) {
         throw new DownloadMethodError("reddit-embed", `The Reddit post contains ${media.mediaKind} media, not ${outputType}.`);
     }
+
     if (media.candidates.length === 0) {
         throw new DownloadMethodError("reddit-embed", "The Reddit embed exposed no downloadable media.");
     }
 
     const failures = [];
+
     for (const candidate of media.candidates) {
         try {
             return await requireAcceptedCandidate(candidate, attemptDir, finalUrl, options);
         } catch (error) {
             if (error?.name === "AbortError" || error?.stopFallback) throw error;
+
             failures.push(error.publicMessage || error.message);
         }
     }

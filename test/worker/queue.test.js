@@ -19,6 +19,7 @@ function deferred() {
         resolve = yes;
         reject = no;
     });
+
     return { promise, resolve, reject };
 }
 async function flush() {
@@ -31,6 +32,7 @@ test("queue rejects invalid contracts and permanent download failures without re
         {
             execute: async () => {
                 calls++;
+
                 throw userError("Private URL", "PRIVATE_URL", { stopFallback: true });
             },
         },
@@ -67,6 +69,7 @@ test("serial cancellation polling never overlaps and aborts on Redis failure", a
         {
             execute: async (_job, { signal }) => {
                 started.resolve();
+
                 return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
             },
         },
@@ -94,6 +97,7 @@ test("shutdown aborts an active job and rejects new deliveries as retryable", as
             execute: async (_job, { signal }) => {
                 calls++;
                 started.resolve();
+
                 return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
             },
         },
@@ -151,6 +155,7 @@ test("shutdown bounds an unavailable queue connection and releases control Redis
             {
                 close: () => {
                     events.push("close");
+
                     return new Promise(() => {});
                 },
             },
@@ -174,6 +179,7 @@ test("stalled progress writes cannot block execution or queue more progress comm
                 await onProgress({ phase: "downloading" });
                 await onProgress({ phase: "storing" });
                 await onProgress({ phase: "completed" });
+
                 return expected;
             },
         },
@@ -183,6 +189,7 @@ test("stalled progress writes cannot block execution or queue more progress comm
         job({
             updateProgress: async () => {
                 updates++;
+
                 return new Promise(() => {});
             },
         }),

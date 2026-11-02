@@ -7,8 +7,10 @@ test("redacts URL credentials, signed queries, fragments and authentication head
     const message =
         "failed https://alice:secret@example.com/video?token=signed-secret#private\nAuthorization: Api-Key operator-secret\nCookie: session=cookie-secret\nBearer bearer-secret";
     const redacted = redactSensitive(message);
+
     for (const secret of ["alice", "signed-secret", "operator-secret", "cookie-secret", "bearer-secret", "#private"])
         assert.equal(redacted.includes(secret), false);
+
     assert.match(redacted, /example.com\/video/);
 });
 

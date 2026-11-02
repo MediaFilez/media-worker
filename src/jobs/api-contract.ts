@@ -10,6 +10,7 @@ export type ApiDownloadJob = z.infer<typeof apiDownloadJobSchema>;
 
 export function parseApiDownloadJob(input: unknown): { payload: ApiDownloadJob; runtimeJob: DownloadJob } {
     const payload = apiDownloadJobSchema.parse(input);
+
     return {
         payload,
         runtimeJob: {

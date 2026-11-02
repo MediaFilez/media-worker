@@ -15,7 +15,9 @@ import { validateArtifact } from "../../src/media-core/download/artifact.js";
 test("real yt-dlp uses the authenticated proxy for media and rejects a private destination", { timeout: 30_000 }, async (t) => {
     const entry = fileURLToPath(import.meta.resolve("youtube-dl-exec"));
     const binary = path.join(path.dirname(entry), "..", "bin", process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+
     if (!(await fs.stat(binary).catch(() => null)) || !(await checkFFmpeg())) return t.skip("Bundled yt-dlp or FFmpeg unavailable.");
+
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-native-proxy-"));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     const source = path.join(root, "source.mp4");

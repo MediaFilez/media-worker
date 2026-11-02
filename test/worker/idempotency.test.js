@@ -16,6 +16,7 @@ async function fixture(t) {
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     const filePath = path.join(root, "source.png");
     await fs.writeFile(filePath, "media");
+
     return { root, artifact: { filePath, fileName: "source.png", sizeBytes: 5, mime: "image/png", mediaKind: "image", extension: "png" } };
 }
 
@@ -39,6 +40,7 @@ test("a fresh runtime recovers a result committed before acknowledgement", async
     const core = {
         downloadMedia: async () => {
             downloads++;
+
             return artifact;
         },
     };
@@ -60,6 +62,7 @@ test("a carousel commits every sibling before its primary and survives a lost ac
         downloadMedia: async () => {
             downloads++;
             const items = [1, 2, 3].map((index) => ({ ...artifact, fileName: `${index}.png` }));
+
             return { ...items[0], items };
         },
     };
@@ -67,7 +70,9 @@ test("a carousel commits every sibling before its primary and survives a lost ac
     const put = storage.put.bind(storage);
     storage.put = async (item, options) => {
         const result = await put(item, options);
+
         if (item.collectionSize) throw new Error("Primary committed but acknowledgement lost");
+
         return result;
     };
     const options = { core, storage, tempRoot: path.join(root, "temp"), maxAttempts: 1 };
@@ -78,6 +83,7 @@ test("a carousel commits every sibling before its primary and survives a lost ac
     assert.equal(recovered.output.collectionSize, 3);
     assert.equal(new Set(recovered.items.map((item) => item.key)).size, 3);
     assert.equal(downloads, 1);
+
     for (const item of recovered.items) assert.equal(await fs.readFile(item.location, "utf8"), "media");
 });
 
@@ -89,6 +95,7 @@ test("failed sibling storage never publishes a successful collection marker", as
     const put = storage.put.bind(storage);
     storage.put = async (item, options) => {
         if (options.identity.jobId.endsWith(":item:2")) throw new Error("Sibling upload failed");
+
         return put(item, options);
     };
     const options = { core, storage, tempRoot: path.join(root, "temp"), maxAttempts: 1 };
@@ -116,19 +123,27 @@ test("R2 conditional commits recover a lost response and select the correct dele
         send: async (command) => {
             const input = command.input;
             const key = `${input.Bucket}/${input.Key}`;
+
             if (command.constructor.name === "HeadObjectCommand") {
                 if (!objects.has(key)) throw Object.assign(new Error("not found"), { $metadata: { httpStatusCode: 404 } });
+
                 return objects.get(key);
             }
+
             if (command.constructor.name === "DeleteObjectCommand") {
                 deletes.push(input);
                 objects.delete(key);
+
                 return {};
             }
+
             assert.equal(input.IfNoneMatch, "*");
             puts++;
+
             if (objects.has(key)) throw Object.assign(new Error("exists"), { $metadata: { httpStatusCode: 412 } });
+
             objects.set(key, { ContentLength: input.ContentLength, ContentType: input.ContentType, Metadata: input.Metadata });
+
             throw new Error("Upload committed but response lost");
         },
     };
@@ -160,18 +175,26 @@ test("R2 concurrent create-only writes cannot overwrite the winning object", asy
     storage.client = {
         send: async (command) => {
             const input = command.input;
+
             if (command.constructor.name === "HeadObjectCommand") {
                 if (++firstHeads <= 2) {
                     if (firstHeads === 2) release();
+
                     await barrier;
+
                     throw Object.assign(new Error("not found"), { $metadata: { httpStatusCode: 404 } });
                 }
+
                 return object;
             }
+
             assert.equal(input.IfNoneMatch, "*");
+
             if (object) throw Object.assign(new Error("exists"), { $metadata: { httpStatusCode: 412 } });
+
             object = { ContentLength: input.ContentLength, ContentType: input.ContentType, Metadata: input.Metadata };
             commits++;
+
             return {};
         },
     };

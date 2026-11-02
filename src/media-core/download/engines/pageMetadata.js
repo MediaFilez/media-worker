@@ -7,14 +7,17 @@ import { downloadDirectHttp, openPublicHttpResponse } from "./directHttp.js";
 function attributes(tag) {
     const result = new Map();
     const pattern = /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+
     for (const match of tag.matchAll(pattern)) {
         result.set(match[1].toLowerCase(), decodeHtmlEntities(match[2] ?? match[3] ?? match[4] ?? ""));
     }
+
     return result;
 }
 
 function addValue(values, key, value) {
     if (!key || !value) return;
+
     const normalized = key.toLowerCase();
     const current = values.get(normalized) ?? [];
     current.push(value.trim());
@@ -23,8 +26,10 @@ function addValue(values, key, value) {
 
 function addUrl(candidates, value, baseUrl) {
     if (!value) return;
+
     try {
         const url = new URL(value, baseUrl);
+
         if (["http:", "https:"].includes(url.protocol) && url.href !== baseUrl.href) candidates.push(url.href);
     } catch {
         // Ignore malformed metadata and continue with the remaining candidates.
@@ -38,19 +43,25 @@ function addUrl(candidates, value, baseUrl) {
  */
 function wrappedUrlCandidates(baseUrl) {
     const candidates = [];
+
     for (const value of baseUrl.searchParams.values()) {
         let decoded = value;
+
         for (let pass = 0; pass < 2; pass += 1) {
             if (/^https?:\/\//i.test(decoded)) addUrl(candidates, decoded, baseUrl);
+
             try {
                 const next = decodeURIComponent(decoded);
+
                 if (next === decoded) break;
+
                 decoded = next;
             } catch {
                 break;
             }
         }
     }
+
     return candidates;
 }
 
@@ -75,16 +86,23 @@ function jsonLdCandidates(html, baseUrl, outputType) {
 
     function visit(value, key = "", depth = 0) {
         visitedValues += 1;
+
         if (depth > 16 || visitedValues > 2_000 || candidates.length >= 12) return;
+
         if (typeof value === "string") {
             if (acceptedKeys.has(key.toLowerCase())) addUrl(candidates, value, baseUrl);
+
             return;
         }
+
         if (Array.isArray(value)) {
             for (const item of value) visit(item, key, depth + 1);
+
             return;
         }
+
         if (!value || typeof value !== "object") return;
+
         for (const [childKey, childValue] of Object.entries(value)) visit(childValue, childKey, depth + 1);
     }
 
@@ -97,19 +115,23 @@ function jsonLdCandidates(html, baseUrl, outputType) {
             continue;
         }
     }
+
     return candidates;
 }
 
 export function extractPageMetadata(html, baseUrl, outputType) {
     const values = new Map();
+
     for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
         const attrs = attributes(match[0]);
         addValue(values, attrs.get("property") || attrs.get("name") || attrs.get("itemprop"), attrs.get("content"));
     }
 
     const inlineMedia = [];
+
     for (const match of html.matchAll(/<(?:video|audio|source)\b[^>]*>/gi)) {
         const src = attributes(match[0]).get("src");
+
         if (src) inlineMedia.push(src);
     }
 
@@ -123,9 +145,11 @@ export function extractPageMetadata(html, baseUrl, outputType) {
     const keys = selectedTypes.flatMap((type) => keysByType[type] ?? []);
 
     const rawCandidates = [...keys.flatMap((key) => values.get(key) ?? [])];
+
     if (["auto", "video", "audio"].includes(outputType)) rawCandidates.push(...inlineMedia);
 
     const candidates = [...wrappedUrlCandidates(baseUrl), ...jsonLdCandidates(html, baseUrl, outputType)];
+
     for (const value of rawCandidates) addUrl(candidates, value, baseUrl);
 
     return {
@@ -137,30 +161,40 @@ export function extractPageMetadata(html, baseUrl, outputType) {
 
 async function readPage(response, maxBytes) {
     const declaredSize = Number.parseInt(String(response.headers["content-length"] || "0"), 10);
+
     if (declaredSize > maxBytes) {
         response.destroy();
+
         throw new DownloadMethodError("page-metadata", `The page metadata exceeded ${maxBytes} bytes.`);
     }
+
     const chunks = [];
     let size = 0;
+
     try {
         for await (const chunk of response) {
             size += chunk.byteLength;
+
             if (size > maxBytes) {
                 throw new DownloadMethodError("page-metadata", `The page metadata exceeded ${maxBytes} bytes.`);
             }
+
             chunks.push(chunk);
         }
     } finally {
         response.destroy();
     }
+
     return Buffer.concat(chunks, size).toString("utf8");
 }
 
 function expectedKind(outputType, mediaKind) {
     if (outputType === "auto") return ["video", "audio", "image"].includes(mediaKind);
+
     if (outputType === "video") return mediaKind === "video";
+
     if (outputType === "audio") return mediaKind === "audio";
+
     return ["image", "video"].includes(mediaKind);
 }
 
@@ -173,22 +207,28 @@ export async function downloadFromPageMetadata(rawUrl, attemptDir, options = {})
         headers: { accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5" },
     });
     const contentType = String(response.headers["content-type"] || "").toLowerCase();
+
     if ((response.statusCode ?? 0) < 200 || (response.statusCode ?? 0) >= 300) {
         response.destroy();
+
         throw new DownloadMethodError("page-metadata", `HTTP ${response.statusCode ?? 0}`);
     }
+
     if (!/text\/html|application\/xhtml/.test(contentType)) {
         response.destroy();
+
         return await downloadDirectHttp(finalUrl.href, attemptDir, { ...options, methodLabel: "page-metadata" });
     }
 
     const html = await readPage(response, config.pageMetadataMaxBytes);
     const metadata = extractPageMetadata(html, finalUrl, options.outputType ?? "video");
+
     if (metadata.candidates.length === 0) {
         throw new DownloadMethodError("page-metadata", "The page exposed no downloadable media metadata.");
     }
 
     const failures = [];
+
     for (const candidate of metadata.candidates) {
         try {
             const file = await downloadDirectHttp(candidate, attemptDir, {
@@ -196,10 +236,13 @@ export async function downloadFromPageMetadata(rawUrl, attemptDir, options = {})
                 methodLabel: "page-metadata",
                 referer: finalUrl.href,
             });
+
             if (!expectedKind(options.outputType ?? "video", file.mediaKind)) {
                 await fs.rm(file.filePath, { force: true });
+
                 throw new DownloadMethodError("page-metadata", `Metadata returned ${file.mediaKind} media.`);
             }
+
             return {
                 ...file,
                 metadata: {
@@ -211,6 +254,7 @@ export async function downloadFromPageMetadata(rawUrl, attemptDir, options = {})
             };
         } catch (error) {
             if (error?.name === "AbortError" || error?.stopFallback) throw error;
+
             failures.push(error.publicMessage || error.message);
         }
     }

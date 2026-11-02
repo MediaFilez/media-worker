@@ -26,17 +26,23 @@ export async function publicFetch(input, init = {}, options = {}) {
     let url = await assertPublicHttpUrl(request.url, { ...options, signal });
     let method = request.method;
     let body = null;
+
     if (request.body) {
         const chunks = [];
         let bytes = 0;
+
         for await (const chunk of request.body) {
             signal.throwIfAborted();
             bytes += chunk.length;
+
             if (bytes > 4 * 1024 * 1024) throw new Error("Extractor request body exceeded 4 MB.");
+
             chunks.push(Buffer.from(chunk));
         }
+
         body = Buffer.concat(chunks, bytes);
     }
+
     const headers = Object.fromEntries(request.headers);
     delete headers.host;
     delete headers["accept-encoding"];
@@ -61,36 +67,49 @@ export async function publicFetch(input, init = {}, options = {}) {
             outgoing.end(body);
         }).catch((error) => {
             signal.throwIfAborted();
+
             if (error.code === "ERR_PRIVATE_ADDRESS") {
                 throw userError("Extractor DNS resolved to a private or reserved address.", "PRIVATE_URL", { stopFallback: true, cause: error });
             }
+
             throw error;
         });
+
         if ([301, 302, 303, 307, 308].includes(response.statusCode) && request.redirect !== "manual") {
             response.destroy();
+
             if (request.redirect === "error" || !response.headers.location || hop === 5) throw new Error("Extractor redirect was refused.");
+
             const next = await assertPublicHttpUrl(new URL(response.headers.location, url).href, { ...options, signal });
+
             if (next.origin !== url.origin) {
                 delete headers.authorization;
                 delete headers.cookie;
             }
+
             if (response.statusCode === 303 || ([301, 302].includes(response.statusCode) && method === "POST")) {
                 method = "GET";
                 body = null;
                 delete headers["content-type"];
                 delete headers["content-length"];
             }
+
             url = next;
             continue;
         }
+
         const responseHeaders = new Headers();
+
         for (const [name, value] of Object.entries(response.headers)) {
             for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) responseHeaders.append(name, item);
         }
+
         if (method === "HEAD" || [204, 205, 304].includes(response.statusCode)) {
             response.destroy();
+
             return new Response(null, { status: response.statusCode, headers: responseHeaders });
         }
+
         let bytes = 0;
         const limiter = new Transform({
             transform(chunk, _encoding, callback) {
@@ -103,12 +122,16 @@ export async function publicFetch(input, init = {}, options = {}) {
         });
         // Attach rejection handling immediately; the consumer observes errors on the returned body.
         const decode = { gzip: createGunzip, deflate: createInflate, br: createBrotliDecompress }[response.headers["content-encoding"]];
+
         if (decode) {
             responseHeaders.delete("content-encoding");
             responseHeaders.delete("content-length");
         }
+
         void pipeline(...[response, ...(decode ? [decode()] : []), limiter], { signal }).catch(() => undefined);
+
         return new Response(Readable.toWeb(limiter), { status: response.statusCode, headers: responseHeaders });
     }
+
     throw new Error("Extractor redirected too many times.");
 }
