@@ -6,7 +6,7 @@
 
 Security fixes target the latest release and `main` of the affected bot, API, or worker repository. Older deployments should update before requesting a backport.
 
-Do not open a public issue containing an unpatched vulnerability. Use the affected repository's private vulnerability reporting, where available, or email **mediafilez44@gmail.com** with the subject **"MediaFilez Security Report"**. The bot repository supports [private reporting](https://github.com/RlxChap2/MediaFilez/security/advisories/new).
+Do not open a public issue containing an unpatched vulnerability. Use the affected repository's private vulnerability reporting, where available, or email **security@mediafilez.online** with the subject **"MediaFilez Security Report"**. The bot repository supports [private reporting](https://github.com/RlxChap2/MediaFilez/security/advisories/new).
 
 Include the affected component/version or commit, relevant configuration names without secret values, a minimal local reproduction, expected impact, and a safe remediation idea. Redact tokens, cookies, authorization headers, signed URLs, personal information, and private media. We aim to acknowledge complete reports within seven days; investigation and remediation time depend on severity and reproducibility. Allow a reasonable remediation period before public disclosure.
 
@@ -65,3 +65,13 @@ Run the repository's deterministic checks after changes. Default tests use local
 The bot's gallery-dl installer accepts platform assets only when the release API publishes a matching SHA-256 digest. Keep downloaded tools in ignored `.tools` directories and out of release source/Docker contexts unless the build explicitly installs them.
 
 See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) for data handling and deletion requests, and [TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md) for permitted use and operator responsibilities.
+
+## CI/CD deployment boundary
+
+Pull requests must not receive production credentials. Production deployments accept only validated GitHub Actions OIDC identities from the configured repository, workflow and main branch. Images are deployed by immutable digest; failed readiness checks restore the previous image. Deployment state, registry credentials, backups and runtime configuration remain private on the deployment host. Database backups do not make schema downgrades automatic.
+
+## Contact addresses
+
+- Technical support and privacy/rights requests: [support@mediafilez.online](mailto:support@mediafilez.online).
+- Partnerships: [partner@mediafilez.online](mailto:partner@mediafilez.online).
+- Vulnerabilities and security incidents: [security@mediafilez.online](mailto:security@mediafilez.online).
