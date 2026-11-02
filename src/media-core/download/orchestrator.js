@@ -13,11 +13,13 @@ import { downloadWithCobalt } from "./engines/cobalt.js";
 import { downloadWithYouTubeJs } from "./engines/youtubeJs.js";
 import { downloadWithGalleryDl } from "./engines/galleryDl.js";
 import { downloadFromPageMetadata } from "./engines/pageMetadata.js";
+import { downloadWithGrabfy } from "./engines/grabfy.js";
 import { downloadWithInstagramProxy } from "./engines/instagramProxy.js";
 import { downloadFromRedditEmbed } from "./engines/redditEmbed.js";
 import { downloadWithRedditProxy } from "./engines/redditProxy.js";
 
 const DEFAULT_ENGINES = new Map([
+    ["grabfy", downloadWithGrabfy],
     ["direct-http", downloadDirectHttp],
     ["yt-dlp", downloadWithYtDlp],
     ["cobalt", downloadWithCobalt],
