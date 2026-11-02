@@ -30,8 +30,10 @@ export function createQueueProcessor(
         let finished = false;
         let progressWrite: Promise<void> | undefined;
         active.add(controller);
+
         try {
             if (closed) throw controlError("The worker is shutting down.", "WORKER_SHUTDOWN");
+
             const { payload, runtimeJob } = parseApiDownloadJob(job.data);
             const cancelKey = `${options.prefix ?? config.queuePrefix}:cancel:${payload.jobId}`;
             const poll = async () => {
@@ -45,6 +47,7 @@ export function createQueueProcessor(
             controller.signal.throwIfAborted();
             const schedule = () => {
                 if (finished || controller.signal.aborted) return;
+
                 timer = setTimeout(() => {
                     pending = poll().then(schedule);
                 }, options.pollMs ?? 500);
@@ -53,6 +56,7 @@ export function createQueueProcessor(
             const onProgress = (update: ProgressUpdate) => {
                 // Keep at most one outstanding Redis progress command, and never wait for it.
                 if (progressWrite || finished || controller.signal.aborted) return;
+
                 progressWrite = Promise.resolve()
                     .then(() => job.updateProgress(update))
                     .catch(() => {
@@ -62,17 +66,21 @@ export function createQueueProcessor(
                         progressWrite = undefined;
                     });
             };
+
             try {
                 return await runtime.execute(runtimeJob, { signal: controller.signal, onProgress });
             } catch (error) {
                 controller.signal.throwIfAborted();
+
                 throw error;
             }
         } catch (error) {
             const exhausted = job.attemptsMade >= (options.maxAttempts ?? config.maxJobAttempts) - 1;
+
             if (!isRetryableError(error) || exhausted) {
                 throw new UnrecoverableError(error instanceof Error ? redactSensitive(error.message) : "Job failed.");
             }
+
             throw error;
         } finally {
             finished = true;
@@ -83,10 +91,12 @@ export function createQueueProcessor(
             await pending;
         }
     };
+
     return {
         processJob,
         shutdown() {
             closed = true;
+
             for (const controller of active) controller.abort(controlError("The worker is shutting down.", "WORKER_SHUTDOWN"));
         },
     };

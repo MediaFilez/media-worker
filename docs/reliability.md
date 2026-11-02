@@ -46,7 +46,7 @@ Default regression tests use local fixtures. `pnpm run test:redis` uses only an 
 
 ## Instagram collections
 
-Instagram downloads preserve every resolved photo and video, up to 50 artifacts. `MediaArtifact.items` carries a collection in Core; single artifacts keep their existing shape. Aggregate source bytes must fit the job's download limit. A failed child transfer cannot be recovered as a successful first slide. Mixed VideoDropper posts follow the provider's video and image arrays, which do not expose the original combined slide order.
+Instagram downloads preserve every resolved photo and video, up to 50 artifacts. `MediaArtifact.items` carries a collection in Core; single artifacts keep their existing shape. Aggregate source bytes must fit the job's download limit. A failed child transfer cannot be recovered as a successful first slide. Collection order follows the successful extractor's result; source order cannot be guaranteed when that extractor omits ordering information.
 
 Version 1 download results add optional `items: StoredMedia[]`; `output` still identifies the first file. The API must persist each item and expose its own file ID. Batch ZIP jobs flatten a post's artifacts into the archive.
 

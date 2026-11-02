@@ -6,6 +6,7 @@ export async function shutdownQueueWorker(
 ): Promise<void> {
     processor.shutdown();
     let timer: ReturnType<typeof setTimeout> | undefined;
+
     try {
         await Promise.race([
             worker.close(),

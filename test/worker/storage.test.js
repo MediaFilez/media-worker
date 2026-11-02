@@ -77,6 +77,7 @@ test("closes the R2 source stream when an upload fails", async (t) => {
         send: async (command) => {
             body = command.input.Body;
             closed = once(body, "close");
+
             throw new Error("upload failed");
         },
     };

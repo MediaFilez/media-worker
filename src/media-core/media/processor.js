@@ -18,12 +18,15 @@ import {
 
 async function copyImage(input, tempDir, outputName) {
     const outputPath = path.join(tempDir, outputName);
+
     if (path.resolve(input.filePath) !== path.resolve(outputPath)) await fs.copyFile(input.filePath, outputPath);
+
     return outputPath;
 }
 
 function ensureFits(file, maxOutputBytes, outputType) {
     if (!maxOutputBytes || file.sizeBytes <= maxOutputBytes) return;
+
     throw userError(
         `The ${outputType} is ${formatBytes(file.sizeBytes)}, above the configured output limit of ${formatBytes(maxOutputBytes)}.`,
         "FILE_TOO_LARGE",
@@ -41,15 +44,18 @@ export async function processMedia(download, options) {
     const { outputType: requestedOutputType, tempDir, maxOutputBytes = null, allowCompression = false, onStatus, signal } = options;
     const format = options.format ?? "original";
     const outputType = requestedOutputType === "auto" ? download.mediaKind : requestedOutputType;
+
     if (!["video", "audio", "image", "thumbnail"].includes(outputType)) {
         throw userError("The downloaded file type could not be detected as video, audio, or image.", "UNSUPPORTED_MEDIA");
     }
+
     let outputPath = download.filePath;
     let outputName = download.fileName;
     let note = null;
 
     if (outputType === "video") {
         if (download.mediaKind !== "video") throw userError("The source is not a video. Choose audio or image output.", "WRONG_MEDIA_TYPE");
+
         if (maxOutputBytes && download.sizeBytes > maxOutputBytes) {
             if (!allowCompression) {
                 throw userError(
@@ -57,6 +63,7 @@ export async function processMedia(download, options) {
                     "FILE_TOO_LARGE",
                 );
             }
+
             await assertSafeMediaFile(download.filePath, { signal });
             await requireFFmpeg("video fitting");
             const fittingDetail = "Fitting video to the requested output size";
@@ -73,6 +80,7 @@ export async function processMedia(download, options) {
             await requireFFmpeg("video conversion");
             await onStatus?.({ phase: "processing", detail: "Converting video to MP4" });
             outputPath = path.join(tempDir, "converted-video.mp4");
+
             try {
                 await runFFmpeg(
                     ["-i", download.filePath, "-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", "-y", outputPath],
@@ -102,6 +110,7 @@ export async function processMedia(download, options) {
                     { signal },
                 );
             }
+
             outputName = makeSafeFileName(download.fileName, "video", "mp4").replace(/\.[^.]+$/, ".mp4");
             note = "converted to MP4";
         }
@@ -111,14 +120,17 @@ export async function processMedia(download, options) {
         const extension = (download.extension || path.extname(download.fileName).slice(1)).toLowerCase();
         const canSendOriginal = download.isAudioOnly || download.mediaKind === "audio";
         const requiresMp3 = format === "mp3" && extension !== "mp3";
+
         if (!canSendOriginal && format === "original") {
             await requireFFmpeg("lossless audio extraction");
             await onStatus?.({ phase: "processing", detail: "Extracting the original audio stream" });
             outputPath = await extractOriginalAudio(download.filePath, tempDir, { signal });
             outputName = path.basename(outputPath);
             note = "extracted the original audio stream without re-encoding";
+
             if (maxOutputBytes && (await fs.stat(outputPath)).size > maxOutputBytes) {
                 if (!allowCompression) throw userError("The original audio exceeds the requested output limit.", "FILE_TOO_LARGE");
+
                 outputPath = await extractAudio(outputPath, tempDir, Math.floor(maxOutputBytes * 0.98), { signal, outputFileName: "fit-audio.mp3" });
                 outputName = "fit-audio.mp3";
                 note = "transcoded to fit the requested size";
@@ -133,6 +145,7 @@ export async function processMedia(download, options) {
                     "FILE_TOO_LARGE",
                 );
             }
+
             await requireFFmpeg(canSendOriginal ? "audio fitting" : "audio extraction");
             await onStatus?.({
                 phase: "processing",
@@ -156,6 +169,7 @@ export async function processMedia(download, options) {
             const extension = path.extname(download.fileName) || ".jpg";
             outputName = outputType === "thumbnail" ? `thumbnail${extension}` : download.fileName;
             outputPath = await copyImage(download, tempDir, outputName);
+
             if (format === "jpg" && !["jpg", "jpeg"].includes(download.extension)) {
                 await assertSafeMediaFile(download.filePath, { signal });
                 await requireFFmpeg("image conversion");
@@ -174,10 +188,12 @@ export async function processMedia(download, options) {
         }
 
         const imageSize = (await fs.stat(outputPath)).size;
+
         if (maxOutputBytes && imageSize > maxOutputBytes) {
             if (!allowCompression) {
                 throw userError(`The image is ${formatBytes(imageSize)}, above the ${formatBytes(maxOutputBytes)} output limit.`, "FILE_TOO_LARGE");
             }
+
             await requireFFmpeg("image fitting");
             await onStatus?.({ phase: "processing", detail: "Fitting image" });
             outputPath = await compressImage(outputPath, tempDir, Math.floor(maxOutputBytes * 0.98), {
@@ -194,10 +210,13 @@ export async function processMedia(download, options) {
     const file = changed
         ? await validateArtifact(outputPath, { preferredName: outputName, outputType, maxBytes: maxOutputBytes ?? undefined, signal })
         : await describeFile(outputPath, outputName, outputType);
+
     if (changed && (["image", "thumbnail"].includes(outputType) ? file.mediaKind !== "image" : outputType === "audio" && !file.isAudioOnly)) {
         throw userError("Processing produced the wrong media type.", "WRONG_MEDIA_TYPE", { stopFallback: true });
     }
+
     ensureFits(file, maxOutputBytes, outputType);
+
     return { ...file, note };
 }
 

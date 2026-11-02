@@ -14,6 +14,7 @@ import { checkFFmpeg, getMediaInfo, runFFmpeg } from "../../src/media-core/utils
 
 test("streams local video through validation, audio-only processing, storage and cleanup", async (t) => {
     if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-smoke-"));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
     const source = path.join(root, "source.mp4");

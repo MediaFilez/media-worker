@@ -22,6 +22,7 @@ const MIME_EXTENSIONS = new Map([
 
 export function extensionFromMime(mime) {
     if (!mime) return null;
+
     return MIME_EXTENSIONS.get(mime.toLowerCase()) ?? null;
 }
 
@@ -30,8 +31,11 @@ export function inferKind({ mime, extension }) {
     const normalizedMime = mime?.toLowerCase() ?? "";
 
     if (normalizedMime.startsWith("video/") || SUPPORTED_VIDEO.has(normalizedExtension)) return "video";
+
     if (normalizedMime.startsWith("image/") || SUPPORTED_IMAGE.has(normalizedExtension)) return "image";
+
     if (normalizedMime.startsWith("audio/") || SUPPORTED_AUDIO.has(normalizedExtension)) return "audio";
+
     return "unknown";
 }
 
@@ -41,6 +45,7 @@ export function makeSafeFileName(inputName, fallbackName, extension) {
     const currentExtension = path.extname(rawName);
     const base = sanitizeFilename(path.basename(rawName, currentExtension)).slice(0, 140) || fallback;
     const finalExtension = (currentExtension || (extension ? `.${extension.replace(/^\./, "")}` : "")).toLowerCase();
+
     return `${base}${finalExtension}`;
 }
 

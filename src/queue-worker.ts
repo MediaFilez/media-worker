@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { validateCookieFile } from "./startup.js";
 
 if (!config.redisUrl) throw new Error("REDIS_URL is required to run the queue worker.");
+
 await validateCookieFile(config.mediaCookiesFile);
 const connection = redisConnection(config.redisUrl);
 const control = new Redis(config.redisUrl, { maxRetriesPerRequest: 1, enableOfflineQueue: false, commandTimeout: 2_000, lazyConnect: true });
@@ -50,6 +51,7 @@ function shutdown() {
         // The process supervisor restarts it; stable storage identity protects redelivery.
         process.exit(1);
     });
+
     return shuttingDown;
 }
 process.once("SIGINT", () => void shutdown());
@@ -57,6 +59,7 @@ process.once("SIGTERM", () => void shutdown());
 
 function redisConnection(url: string): ConnectionOptions {
     const parsed = new URL(url);
+
     return {
         host: parsed.hostname,
         port: Number(parsed.port || 6379),

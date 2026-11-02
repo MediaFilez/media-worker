@@ -19,6 +19,7 @@ async function fixture(t, handler) {
                 server.close(resolve);
             }),
     );
+
     return `http://127.0.0.1:${server.address().port}`;
 }
 
@@ -38,7 +39,9 @@ async function proxyRequest(proxy, destination, authenticated = true) {
         request.end();
     });
     const chunks = [];
+
     for await (const chunk of response) chunks.push(chunk);
+
     return { status: response.statusCode, body: Buffer.concat(chunks).toString() };
 }
 
@@ -55,6 +58,7 @@ test("rejects canonical, mapped and transition private IPv6 and URL credentials"
     ]) {
         assert.equal(isBlockedAddress(address), true, address);
     }
+
     assert.equal(isBlockedAddress("::ffff:1.1.1.1"), false);
     assert.equal(isBlockedAddress("2606:4700:4700::1111"), false);
     await assert.rejects(assertPublicHttpUrl("http://[::ffff:7f00:1]/"), { code: "PRIVATE_URL" });
@@ -121,10 +125,12 @@ test("a broken CONNECT client socket cannot crash the worker or poison the next 
     let injected = false;
     t.mock.method(net.Socket.prototype, "write", function (chunk, ...args) {
         const result = write.call(this, chunk, ...args);
+
         if (!injected && typeof chunk === "string" && chunk.startsWith("HTTP/1.1 200 Connection Established")) {
             injected = true;
             queueMicrotask(() => this.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" })));
         }
+
         return result;
     });
     const url = new URL(proxy.url);

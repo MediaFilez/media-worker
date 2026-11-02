@@ -6,6 +6,7 @@ const INSTAGRAM_HOSTS = new Set(["instagram.com", "www.instagram.com", "m.instag
 
 function proxyUrl(rawUrl, proxyHost) {
     const source = new URL(rawUrl);
+
     if (!INSTAGRAM_HOSTS.has(source.hostname.toLowerCase())) {
         throw new DownloadMethodError("instagram-proxy", "This fallback only accepts Instagram URLs.");
     }
@@ -14,6 +15,7 @@ function proxyUrl(rawUrl, proxyHost) {
     proxy.pathname = source.pathname;
     proxy.search = source.search;
     proxy.hash = "";
+
     return proxy;
 }
 
@@ -23,15 +25,18 @@ export async function downloadWithInstagramProxy(rawUrl, attemptDir, options = {
     }
 
     const failures = [];
+
     for (const host of config.instagramProxyHosts) {
         try {
             const url = proxyUrl(rawUrl, host);
+
             return await downloadDirectHttp(url.href, attemptDir, {
                 ...options,
                 methodLabel: `instagram-proxy:${url.hostname}`,
             });
         } catch (error) {
             if (error?.name === "AbortError" || error?.stopFallback) throw error;
+
             failures.push(`${host}: ${error.publicMessage || error.message}`);
         }
     }

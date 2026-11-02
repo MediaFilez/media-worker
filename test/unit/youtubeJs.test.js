@@ -20,7 +20,9 @@ test("retries YouTube.js client initialization after a transient failure", async
     let attempts = 0;
     const createClient = async () => {
         attempts += 1;
+
         if (attempts === 1) throw new Error("temporary network failure");
+
         return client;
     };
 
@@ -36,6 +38,7 @@ test("does not expose an interrupted YouTube.js download as a finished file", as
 
     async function* interruptedStream() {
         yield Buffer.from("partial media");
+
         throw new Error("connection lost");
     }
 

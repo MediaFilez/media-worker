@@ -52,7 +52,9 @@ export class WorkerRuntime {
         let lastError: unknown;
         const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
         const signals = [timeoutSignal, tempOwnershipSignal];
+
         if (options.signal) signals.push(options.signal);
+
         const signal = AbortSignal.any(signals);
         const onProgress = options.onProgress
             ? async (update: ProgressUpdate) => {
@@ -65,6 +67,7 @@ export class WorkerRuntime {
             : undefined;
 
         signal.throwIfAborted();
+
         if (this.tempRoot) await fs.mkdir(this.tempRoot, { recursive: true });
 
         for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
@@ -82,6 +85,7 @@ export class WorkerRuntime {
                 );
                 const completedAt = new Date();
                 await onProgress?.({ phase: "completed", attempt, totalAttempts: this.maxAttempts });
+
                 return {
                     ...result,
                     jobId: job.jobId,
@@ -94,10 +98,12 @@ export class WorkerRuntime {
             } catch (error) {
                 lastError = error;
                 signal.throwIfAborted();
+
                 if (attempt >= this.maxAttempts || !isRetryableError(error)) throw error;
             } finally {
                 await cleanupTempDir(jobDir);
             }
+
             const delayMs = this.retryBaseDelayMs * 2 ** (attempt - 1);
             await onProgress?.({
                 phase: "retrying",
@@ -105,10 +111,12 @@ export class WorkerRuntime {
                 attempt,
                 totalAttempts: this.maxAttempts,
             });
+
             try {
                 await delay(delayMs, undefined, { signal });
             } catch (error) {
                 signal.throwIfAborted();
+
                 throw error;
             }
         }
@@ -123,13 +131,18 @@ export class WorkerRuntime {
     ): Promise<Omit<WorkerResult, "jobId" | "type" | "attempts" | "startedAt" | "completedAt" | "durationMs">> {
         if (job.type === "download") {
             const { items, ...output } = await executeDownloadJob(job, jobDir, { core: this.core, storage: this.storage }, context);
+
             return { output, ...(items ? { items } : {}) };
         }
+
         if (job.type === "batch") {
             const result = await executeBatchJob(job, jobDir, { core: this.core, storage: this.storage }, context);
+
             return { output: result.archive };
         }
+
         const cleanedDirectories = await executeCleanupJob(this.tempRoot);
+
         return { cleanedDirectories };
     }
 }

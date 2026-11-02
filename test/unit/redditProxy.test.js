@@ -19,9 +19,11 @@ test("continues to the next Reddit proxy after a blocked response", async () => 
         proxyHosts: ["blocked.example", "working.example"],
         pageDownloader: async (url) => {
             calls.push(url);
+
             if (url.includes("blocked.example")) {
                 throw new DownloadMethodError("page-metadata", "HTTP 403");
             }
+
             return {
                 filePath: "result.png",
                 fileName: "result.png",

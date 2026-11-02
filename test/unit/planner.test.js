@@ -22,9 +22,8 @@ test("plans ordered YouTube fallbacks", () => {
     ]);
 });
 
-test("tries VideoDropper before Instagram image extractors", () => {
+test("plans ordered Instagram image extractors", () => {
     assert.deepEqual(planEngines("https://www.instagram.com/p/example/", "image", settings), [
-        "videodropper",
         "gallery-dl",
         "yt-dlp",
         "instagram-proxy",
@@ -33,9 +32,8 @@ test("tries VideoDropper before Instagram image extractors", () => {
     ]);
 });
 
-test("tries VideoDropper before Instagram video extractors", () => {
+test("plans ordered Instagram video extractors", () => {
     assert.deepEqual(planEngines("https://www.instagram.com/reels/example/", "video", settings), [
-        "videodropper",
         "yt-dlp",
         "instagram-proxy",
         "cobalt",
@@ -46,7 +44,7 @@ test("tries VideoDropper before Instagram video extractors", () => {
 
 test("lets an operator prefer the configured Instagram proxy for video and auto output", () => {
     const preferred = { ...settings, instagramProxyFirst: true };
-    const expected = ["videodropper", "instagram-proxy", "yt-dlp", "cobalt", "gallery-dl", "page-metadata"];
+    const expected = ["instagram-proxy", "yt-dlp", "cobalt", "gallery-dl", "page-metadata"];
 
     assert.deepEqual(planEngines("https://www.instagram.com/reel/example/", "video", preferred), expected);
     assert.deepEqual(planEngines("https://www.instagram.com/reel/example/", "auto", preferred), expected);
@@ -112,7 +110,6 @@ test("uses Reddit embed fallback for short image links", () => {
 
 test("lets auto detection use media-aware social extractors first", () => {
     assert.deepEqual(planEngines("https://www.instagram.com/p/example/", "auto", settings), [
-        "videodropper",
         "gallery-dl",
         "yt-dlp",
         "instagram-proxy",

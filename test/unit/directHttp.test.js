@@ -14,6 +14,7 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 async function listen(handler) {
     const server = http.createServer(handler);
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
     return server;
 }
 
@@ -26,6 +27,7 @@ test("allows a slow transfer while bytes continue to arrive", async (t) => {
             const next = Math.min(PNG.length, offset + 10);
             response.write(PNG.subarray(offset, next));
             offset = next;
+
             if (offset === PNG.length) {
                 clearInterval(timer);
                 response.end();
@@ -101,8 +103,10 @@ test("stops fallback when socket DNS changes to a private address", async (t) =>
     dns.lookup = (hostname, options, callback) => {
         if (hostname === "rebind.example") {
             callback(null, [{ address: "127.0.0.1", family: 4 }]);
+
             return;
         }
+
         originalLookup(hostname, options, callback);
     };
     t.after(() => {

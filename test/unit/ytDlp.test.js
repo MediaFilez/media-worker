@@ -40,6 +40,7 @@ test("gives yt-dlp a private writable cookie copy", async (t) => {
     assert.equal(result.method, "yt-dlp");
     assert.equal(path.dirname(cookieArgument), attemptDir);
     assert.equal(await fs.readFile(originalCookies, "utf8"), cookieContents);
+
     if (process.platform !== "win32") {
         assert.equal((await fs.stat(cookieArgument)).mode & 0o777, 0o600);
     }

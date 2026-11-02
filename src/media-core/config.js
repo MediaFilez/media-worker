@@ -7,12 +7,15 @@ export const GB = 1024 * MB;
 
 function parseBoolean(value, fallback) {
     if (value === undefined || value === null || value === "") return fallback;
+
     return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }
 
 function parseInteger(value, fallback, min, max) {
     const parsed = Number.parseInt(value ?? "", 10);
+
     if (!Number.isFinite(parsed)) return fallback;
+
     return Math.min(Math.max(parsed, min), max);
 }
 
@@ -21,6 +24,7 @@ function parseSize(value, fallback, max = Number.MAX_SAFE_INTEGER) {
 
     const normalized = String(value).trim().toLowerCase();
     const match = normalized.match(/^(\d+(?:\.\d+)?)\s*(b|kb|kib|mb|mib|gb|gib)?$/);
+
     if (!match) return fallback;
 
     const amount = Number.parseFloat(match[1]);
@@ -40,6 +44,7 @@ function parseSize(value, fallback, max = Number.MAX_SAFE_INTEGER) {
 
 function parseList(value) {
     if (!value || String(value).trim().toLowerCase() === "none") return [];
+
     return String(value)
         .split(",")
         .map((item) => item.trim())
@@ -92,6 +97,8 @@ export const config = {
     // Only enable proxies that return the media file itself. Public profile viewers
     // commonly return HTML, which is not a safe or useful download fallback.
     instagramProxyHosts: parseList(process.env.INSTAGRAM_PROXY_HOSTS),
+    grabfyEnabled: parseBoolean(process.env.GRABFY_ENABLED, false),
+    grabfyTimeoutMs: parseInteger(process.env.GRABFY_TIMEOUT_MS, 20_000, 1_000, 60_000),
     instagramProxyFirst: parseBoolean(process.env.INSTAGRAM_PROXY_FIRST, false),
     redditProxyHosts: process.env.REDDIT_PROXY_HOSTS === undefined ? ["redditez.com"] : parseList(process.env.REDDIT_PROXY_HOSTS),
     disabledEngines: new Set(parseList(process.env.DISABLED_ENGINES).map((item) => item.toLowerCase())),
@@ -118,6 +125,7 @@ export const config = {
 
 export function requireConfig(keys) {
     const missing = keys.filter((key) => !config[key]);
+
     if (missing.length > 0) {
         throw new Error(`Missing required environment value(s): ${missing.join(", ")}`);
     }

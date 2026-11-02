@@ -11,17 +11,20 @@ async function fixture(t) {
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     const filePath = path.join(dir, "source");
     await fs.writeFile(filePath, "media");
+
     return { dir, file: { filePath, fileName: "clip.mp4", sizeBytes: 5 }, output: path.join(dir, "media.zip") };
 }
 
 function entryNames(zip) {
     const names = [];
     let offset = zip.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+
     while (offset >= 0 && zip.readUInt32LE(offset) === 0x02014b50) {
         const nameLength = zip.readUInt16LE(offset + 28);
         names.push(zip.toString("utf8", offset + 46, offset + 46 + nameLength));
         offset += 46 + nameLength + zip.readUInt16LE(offset + 30) + zip.readUInt16LE(offset + 32);
     }
+
     return names;
 }
 
@@ -68,6 +71,7 @@ test("settles cancellation after opening the ZIP and releases the output handle"
     t.mock.method(nodeFs, "createWriteStream", (...args) => {
         const stream = createWriteStream(...args);
         stream.once("open", () => controller.abort());
+
         return stream;
     });
     await assert.rejects(createArchive([file], output, { signal: controller.signal }), { name: "AbortError" });

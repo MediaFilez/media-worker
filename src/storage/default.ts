@@ -5,7 +5,9 @@ import type { MediaStorage } from "./storage.js";
 
 export function createDefaultStorage(): MediaStorage {
     const r2 = [config.r2AccountId, config.r2AccessKeyId, config.r2SecretAccessKey, config.r2Bucket];
+
     if (r2.some(Boolean) && !r2.every(Boolean)) throw new Error("All R2 environment variables must be set together.");
+
     if (config.r2AccountId && config.r2AccessKeyId && config.r2SecretAccessKey && config.r2Bucket) {
         return new R2StorageAdapter({
             accountId: config.r2AccountId,
@@ -15,5 +17,6 @@ export function createDefaultStorage(): MediaStorage {
             publicBucket: config.r2PublicBucket,
         });
     }
+
     return new LocalStorageAdapter(config.storageDir);
 }

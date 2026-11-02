@@ -9,6 +9,7 @@ import { runProcess } from "../../src/media-core/utils/process.js";
 async function directory(t) {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "mediaworker-resource-test-"));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
+
     return root;
 }
 
@@ -45,6 +46,7 @@ test("process slots serialize launches and remove cancelled waiters", async (t) 
             let acquired = false;
             const next = acquireProcess(signal).then((nextRelease) => {
                 acquired = true;
+
                 return nextRelease;
             });
             await Promise.resolve();

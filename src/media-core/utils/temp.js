@@ -20,6 +20,7 @@ function validateTempPrefix(prefix) {
     if (typeof prefix !== "string" || prefix.length < 8 || prefix.includes("/") || prefix.includes("\\")) {
         throw new TypeError("TEMP_PREFIX must be a plain name at least eight characters long.");
     }
+
     return prefix;
 }
 
@@ -33,6 +34,7 @@ export async function assertTempDiskSpace(rootDir = os.tmpdir(), additionalBytes
     try {
         const stats = await fs.statfs(path.resolve(rootDir));
         const freeBytes = stats.bavail * stats.bsize;
+
         if (freeBytes < config.minFreeDiskBytes + Math.max(0, additionalBytes)) {
             throw userError(
                 `The temp filesystem has only ${formatBytes(freeBytes)} free. Need at least ${formatBytes(config.minFreeDiskBytes)} plus the requested job reserve.`,
@@ -41,6 +43,7 @@ export async function assertTempDiskSpace(rootDir = os.tmpdir(), additionalBytes
         }
     } catch (error) {
         if (error.name === "UserFacingError") throw error;
+
         log.warn(`Could not check temp disk space: ${error.message}`);
     }
 }
@@ -54,17 +57,20 @@ export async function assertTempDiskSpace(rootDir = os.tmpdir(), additionalBytes
  */
 export async function createRequestTempDir(options = {}) {
     if (tempOwnershipSignal.aborted) throw tempOwnershipSignal.reason;
+
     const rootDir = path.resolve(options.rootDir ?? os.tmpdir());
     await assertTempDiskSpace(rootDir);
     const prefix = validateTempPrefix(options.prefix ?? config.tempPrefix);
     await ensureTempOwnerServer();
     const dir = await fs.mkdtemp(path.join(rootDir, `${prefix}${TEMP_HOST_ID}-${TEMP_OWNER_ID}-`));
     log.debug("Created temp dir:", dir);
+
     return dir;
 }
 
 function tempOwnerEndpoint(ownerId) {
     if (process.platform === "win32") return `\\\\.\\pipe\\mediafilez-${ownerId}`;
+
     return path.join(os.tmpdir(), `.mediafilez-${ownerId}.sock`);
 }
 
@@ -90,6 +96,7 @@ function ensureTempOwnerServer() {
                 );
             });
             server.unref();
+
             if (process.platform !== "win32") {
                 process.once("exit", () => {
                     try {
@@ -97,19 +104,23 @@ function ensureTempOwnerServer() {
                     } catch {}
                 });
             }
+
             resolve(server);
         });
     });
+
     return ownerServerPromise;
 }
 
 function tempOwnerFromName(name, prefix) {
     const match = /^([a-f0-9]{12})-([a-f0-9]{32})-/.exec(name.slice(prefix.length));
+
     return match ? { hostId: match[1], ownerId: match[2] } : null;
 }
 
 async function isTempOwnerActive(owner) {
     if (owner.hostId !== TEMP_HOST_ID) return true;
+
     const endpoint = tempOwnerEndpoint(owner.ownerId);
 
     return await new Promise((resolve) => {
@@ -117,6 +128,7 @@ async function isTempOwnerActive(owner) {
         const socket = net.createConnection(endpoint);
         const finish = (active) => {
             if (settled) return;
+
             settled = true;
             clearTimeout(timeout);
             socket.destroy();
@@ -141,21 +153,30 @@ export async function cleanupStaleTempDirs(options = {}) {
     const prefix = validateTempPrefix(options.prefix ?? config.tempPrefix);
     const ownerIsActive = options.isOwnerActive ?? isTempOwnerActive;
     let entries;
+
     try {
         entries = await fs.readdir(rootDir, { withFileTypes: true });
     } catch (error) {
         log.warn(`Could not inspect stale temp directories: ${error.message}`);
+
         return 0;
     }
 
     let removed = 0;
+
     for (const entry of entries) {
         if (!entry.isDirectory() || !entry.name.startsWith(prefix)) continue;
+
         const owner = tempOwnerFromName(entry.name, prefix);
+
         if (!owner) continue;
+
         const target = path.resolve(rootDir, entry.name);
+
         if (path.dirname(target) !== rootDir) continue;
+
         if (await ownerIsActive(owner)) continue;
+
         try {
             await fs.rm(target, { recursive: true, force: true });
             removed += 1;
@@ -163,6 +184,7 @@ export async function cleanupStaleTempDirs(options = {}) {
             log.warn(`Could not clean stale temp dir ${target}: ${error.message}`);
             continue;
         }
+
         if (owner.hostId === TEMP_HOST_ID && process.platform !== "win32") {
             try {
                 await fs.rm(tempOwnerEndpoint(owner.ownerId), { force: true });
@@ -173,6 +195,7 @@ export async function cleanupStaleTempDirs(options = {}) {
     }
 
     if (removed > 0) log.info(`Cleaned ${removed} stale media temp director${removed === 1 ? "y" : "ies"}.`);
+
     return removed;
 }
 
@@ -180,6 +203,7 @@ export async function cleanupTempDir(dir) {
     if (!dir) return;
 
     const resolvedDir = path.resolve(dir);
+
     try {
         await fs.rm(resolvedDir, { recursive: true, force: true });
         log.debug("Cleaned up temp dir:", resolvedDir);

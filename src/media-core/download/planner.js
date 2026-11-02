@@ -80,6 +80,7 @@ function matchesHost(host, supportedHosts) {
     for (const supportedHost of supportedHosts) {
         if (host === supportedHost || host.endsWith(`.${supportedHost}`)) return true;
     }
+
     return false;
 }
 
@@ -87,6 +88,7 @@ export function classifySource(rawUrl) {
     const url = new URL(rawUrl);
     const host = url.hostname.toLowerCase();
     const extension = path.extname(url.pathname).toLowerCase();
+
     return {
         direct: DIRECT_EXTENSIONS.has(extension),
         youtube: matchesHost(host, YOUTUBE_HOSTS),
@@ -101,6 +103,7 @@ export function classifySource(rawUrl) {
 export function planEngines(rawUrl, outputType, settings = config) {
     const source = classifySource(rawUrl);
     let names;
+
     if (source.direct) names = ["direct-http"];
     else if (source.youtube) names = ["yt-dlp", "youtube-js", "cobalt", "page-metadata"];
     else if (source.reddit && ["auto", "image", "thumbnail"].includes(outputType)) {
@@ -117,18 +120,25 @@ export function planEngines(rawUrl, outputType, settings = config) {
     else if (source.cobalt) names = ["cobalt", "yt-dlp", "gallery-dl", "page-metadata"];
     else names = ["page-metadata", "direct-http"];
 
-    if (source.instagram && !source.direct) names.unshift("videodropper");
+    if (source.instagram && !source.direct && settings.grabfyEnabled) names.unshift("grabfy");
 
     return names.filter((name) => {
         if (settings.disabledEngines?.has(name)) return false;
+
         if (name === "youtube-js" && !settings.youtubeJsEnabled) return false;
+
         if (name === "gallery-dl" && !settings.galleryDlEnabled) return false;
+
         if (name === "page-metadata" && settings.pageMetadataEnabled === false) return false;
+
         if (name === "instagram-proxy" && settings.instagramProxyHosts?.length === 0) return false;
+
         if (name === "reddit-proxy" && settings.redditProxyHosts?.length === 0) return false;
+
         if (name === "cobalt" && settings.cobaltApiEndpoints.length === 0 && !settings.cobaltDirectoryEnabled) {
             return false;
         }
+
         return true;
     });
 }
