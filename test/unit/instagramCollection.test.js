@@ -1,3 +1,5 @@
+import { recoverMediaCollection } from "../../src/media-core/download/collection.js";
+import { checkFFmpeg, runFFmpeg } from "../../src/media-core/utils/ffmpeg.js";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -29,6 +31,7 @@ for (const [name, download] of [
                         async (_url, dir) => {
                             const filePath = path.join(dir, "only.png");
                             await fs.writeFile(filePath, PNG);
+
                             return { filePath, fileName: "only.png" };
                         },
                     ],
@@ -56,6 +59,7 @@ for (const [name, download] of [
                 } else {
                     assert.equal(args[args.indexOf("--range") + 1], "1-51");
                 }
+
                 for (const index of [10, 2, 1]) await fs.writeFile(path.join(directory, `${index}.png`), PNG);
             },
         });
@@ -75,10 +79,57 @@ for (const [name, download] of [
                 maxBytes: 1024 * 1024,
                 processRunner: async () => {
                     await fs.writeFile(path.join(directory, "1.png"), PNG);
+
                     throw new Error("the next slide failed");
                 },
             }),
             (error) => error.incompleteCollection === true,
         );
+    });
+}
+
+for (const outputType of ["auto", "video", "audio"]) {
+    test(`a mixed Instagram collection preserves every selected ${outputType} item`, async (t) => {
+        if (!(await checkFFmpeg())) return t.skip("FFmpeg is not installed.");
+
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-mixed-collection-"));
+        t.after(() => fs.rm(directory, { recursive: true, force: true }));
+        const video = path.join(directory, "fixture.mp4");
+        await runFFmpeg([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=32x32:d=0.1",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=0.1",
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "aac",
+            "-y",
+            video,
+        ]);
+        const result = await downloadMedia("https://www.instagram.com/p/fixture/", directory, {
+            outputType,
+            maxBytes: 1024 * 1024,
+            plan: ["fixture"],
+            engines: new Map([
+                [
+                    "fixture",
+                    async (_url, attemptDir, options) => {
+                        await fs.writeFile(path.join(attemptDir, "1.png"), PNG);
+                        await fs.copyFile(video, path.join(attemptDir, "2.mp4"));
+
+                        return recoverMediaCollection(attemptDir, options);
+                    },
+                ],
+            ]),
+        });
+
+        assert.equal(result.items?.length ?? 1, outputType === "auto" ? 2 : 1);
+
+        if (outputType !== "auto") assert.equal(result.mediaKind, "video");
     });
 }
