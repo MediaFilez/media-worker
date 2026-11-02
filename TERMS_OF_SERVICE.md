@@ -73,7 +73,7 @@ For a mistaken restriction, contact us with the relevant account or Discord user
 
 ## 8. Rights complaints
 
-Email **mediafilez44@gmail.com** with the subject **"MediaFilez Rights Report"**. Include the source URL, affected file or Discord location if known, your relationship to the work or person, the basis of the complaint, and contact details for a response. Do not include unnecessary personal information. We may seek reasonable verification and restrict access while reviewing a complaint. Discord-hosted attachments may also require a report through Discord.
+Email **support@mediafilez.online** with the subject **"MediaFilez Rights Report"**. Include the source URL, affected file or Discord location if known, your relationship to the work or person, the basis of the complaint, and contact details for a response. Do not include unnecessary personal information. We may seek reasonable verification and restrict access while reviewing a complaint. Discord-hosted attachments may also require a report through Discord.
 
 ## 9. Availability and warranties
 
@@ -99,8 +99,14 @@ Applicable law and any mandatory jurisdiction rules govern disputes. Contact us 
 
 **MediaFilez Project**
 
-Email: **mediafilez44@gmail.com**
+Email: **support@mediafilez.online**
 
 Repositories: [Bot](https://github.com/RlxChap2/MediaFilez), plus the API and worker distributions used by the deployment.
 
 These documents describe the software's supported operating model. Before a public or commercial deployment, the Operator must identify the responsible legal entity and contact details, confirm applicable jurisdictions and source/provider permissions, set retention and deletion procedures, and obtain legal review appropriate to that deployment. Independently hosted services must publish notices that describe their own operation.
+
+## Contact addresses
+
+- Technical support and privacy/rights requests: [support@mediafilez.online](mailto:support@mediafilez.online).
+- Partnerships: [partner@mediafilez.online](mailto:partner@mediafilez.online).
+- Vulnerabilities and security incidents: [security@mediafilez.online](mailto:security@mediafilez.online).

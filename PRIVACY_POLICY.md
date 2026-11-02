@@ -26,6 +26,8 @@ The API uses PostgreSQL for account and service records. Depending on the config
 
 Discord login uses the `identify` permission and a temporary authorization-code exchange with PKCE. The exchanged Discord OAuth access token is used to obtain identity; the account implementation does not persist it as an account credential. Browser authentication uses an HttpOnly session cookie. Its Secure flag depends on an HTTPS public origin, which operators must configure for production. Supported legacy email/password accounts have their own authentication flow.
 
+The website stores the chosen theme in localStorage and keeps entered links, pending job IDs, ZIP progress and a local login-return path in sessionStorage. These are browser-side records, not a promise of deletion from backend storage. The browser can fetch signed media and assemble ZIP files locally. The website server reads public bot totals or, with its private reader credential, selected community metadata.
+
 PostgreSQL also stores submitted URLs/options, job ownership, payloads, status, results, errors, idempotency information, timestamps, batch records, file metadata and object keys, visibility/expiry fields, content records, and saved playlists/items. These records can include personal data contained in a URL, filename, caption, creator name, or submitted title.
 
 The API processes the server-observed IP address for request limits and, where anonymous downloads are enabled, an anonymous job-access subject. People sharing an observed IP can share that anonymous subject; anonymous mode does not provide account-level separation.
@@ -94,7 +96,7 @@ These are application controls, not a complete operating-system sandbox. Native 
 
 Where applicable, you may have rights to access, correction, deletion, restriction, portability, objection, withdrawal of consent, and a complaint or appeal to a competent authority. Mandatory rights are not waived by using the Service.
 
-Email **mediafilez44@gmail.com** with the subject **"MediaFilez Privacy Request"**. Include your MediaFilez account or Discord user ID, approximate request time, relevant file/job IDs if known, and what you request. Do not send passwords, session cookies, bot tokens, or private media. We may request reasonable identity verification and retain information required by law or a valid security/legal need.
+Email **support@mediafilez.online** with the subject **"MediaFilez Privacy Request"**. Include your MediaFilez account or Discord user ID, approximate request time, relevant file/job IDs if known, and what you request. Do not send passwords, session cookies, bot tokens, or private media. We may request reasonable identity verification and retain information required by law or a valid security/legal need.
 
 The standalone bot may lack enough persistent identifiers to locate a past request. API records may be identifiable by account/job ownership. Some actions require manual operator work; there is no promise of a self-service erasure feature. Discord messages and independently hosted provider copies may require action with the respective provider. Credential revocation limits future authentication but does not erase stored records or third-party copies by itself.
 
@@ -110,6 +112,12 @@ Changes are published at the same location with an updated date. Material change
 
 **MediaFilez Project**
 
-Email: **mediafilez44@gmail.com**
+Email: **support@mediafilez.online**
 
 Before launching a deployment, its operator must publish the responsible entity/contact, actual providers, applicable retention periods, and other legally required particulars. Independently hosted services must replace this notice with one that describes their own processing. This Policy describes the reviewed operating model and does not certify legal compliance in every jurisdiction.
+
+## Contact addresses
+
+- Technical support and privacy/rights requests: [support@mediafilez.online](mailto:support@mediafilez.online).
+- Partnerships: [partner@mediafilez.online](mailto:partner@mediafilez.online).
+- Vulnerabilities and security incidents: [security@mediafilez.online](mailto:security@mediafilez.online).
