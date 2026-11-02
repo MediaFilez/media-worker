@@ -38,6 +38,7 @@ ENV NODE_ENV=production \
 COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY scripts/healthcheck.mjs ./scripts/healthcheck.mjs
 
 RUN mkdir -p /data/storage /data/temp \
     && chown -R node:node /data
@@ -46,4 +47,5 @@ USER node
 ENV WORKER_STORAGE_DIR=/data/storage \
     WORKER_TEMP_DIR=/data/temp
 
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 CMD ["node", "scripts/healthcheck.mjs"]
 ENTRYPOINT ["node", "dist/queue-worker.js"]

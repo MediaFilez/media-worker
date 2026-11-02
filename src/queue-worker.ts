@@ -7,6 +7,9 @@ import { redactSensitive } from "./media-core/utils/errors.js";
 import { shutdownQueueWorker } from "./queue-shutdown.js";
 import { randomUUID } from "node:crypto";
 import { validateCookieFile } from "./startup.js";
+import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 if (!config.redisUrl) throw new Error("REDIS_URL is required to run the queue worker.");
 
@@ -31,6 +34,7 @@ const heartbeat = async () => {
     await control.zadd(heartbeatKey, Date.now(), workerId);
     await control.zremrangebyscore(heartbeatKey, "-inf", Date.now() - 120_000);
     await control.expire(heartbeatKey, 120);
+    await writeFile(join(tmpdir(), "mediafilez-worker-health.json"), JSON.stringify({ at: Date.now() }), { mode: 0o600 });
 };
 await heartbeat();
 const heartbeatTimer = setInterval(
