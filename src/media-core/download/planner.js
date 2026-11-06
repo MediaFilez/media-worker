@@ -88,11 +88,13 @@ export function classifySource(rawUrl) {
     const url = new URL(rawUrl);
     const host = url.hostname.toLowerCase();
     const extension = path.extname(url.pathname).toLowerCase();
+    const instagram = matchesHost(host, INSTAGRAM_HOSTS);
 
     return {
         direct: DIRECT_EXTENSIONS.has(extension),
         youtube: matchesHost(host, YOUTUBE_HOSTS),
-        instagram: matchesHost(host, INSTAGRAM_HOSTS),
+        instagram,
+        instagramStory: instagram && /^\/(?:stories|s)(?:\/|$)/i.test(url.pathname),
         reddit: matchesHost(host, REDDIT_HOSTS),
         gallery: matchesHost(host, GALLERY_HOSTS),
         cobalt: matchesHost(host, COBALT_HOSTS),
@@ -104,7 +106,8 @@ export function planEngines(rawUrl, outputType, settings = config) {
     const source = classifySource(rawUrl);
     let names;
 
-    if (source.direct) names = ["direct-http"];
+    if (source.instagramStory) names = ["gallery-dl"];
+    else if (source.direct) names = ["direct-http"];
     else if (source.youtube) names = ["yt-dlp", "youtube-js", "cobalt", "page-metadata"];
     else if (source.reddit && ["auto", "image", "thumbnail"].includes(outputType)) {
         names = ["reddit-embed", "reddit-proxy", "gallery-dl", "yt-dlp", "cobalt", "page-metadata"];
@@ -120,7 +123,7 @@ export function planEngines(rawUrl, outputType, settings = config) {
     else if (source.cobalt) names = ["cobalt", "yt-dlp", "gallery-dl", "page-metadata"];
     else names = ["page-metadata", "direct-http"];
 
-    if (source.instagram && !source.direct && settings.grabfyEnabled) names.unshift("grabfy");
+    if (source.instagram && !source.instagramStory && !source.direct && settings.grabfyEnabled) names.unshift("grabfy");
 
     return names.filter((name) => {
         if (settings.disabledEngines?.has(name)) return false;
