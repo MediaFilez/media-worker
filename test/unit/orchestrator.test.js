@@ -18,6 +18,47 @@ async function tempJob() {
     return await fs.mkdtemp(path.join(os.tmpdir(), "mediafilez-test-"));
 }
 
+test("does not return a page preview when the requested Instagram story is missing", async (t) => {
+    const jobDir = await tempJob();
+    t.after(() => fs.rm(jobDir, { recursive: true, force: true }));
+    const avatar = path.join(jobDir, "avatar.png");
+    await fs.writeFile(avatar, PNG);
+    const engines = new Map([
+        [
+            "gallery-dl",
+            async () => {
+                throw new DownloadMethodError("gallery-dl", "NotFoundError: Requested story could not be found");
+            },
+        ],
+        ["page-metadata", fileEngine(avatar, "page-metadata", [])],
+    ]);
+
+    await assert.rejects(
+        downloadMedia("https://www.instagram.com/stories/example/1234567890/", jobDir, { outputType: "auto", engines }),
+        /Instagram did not return the requested story/,
+    );
+});
+
+test("returns story media from the Instagram story extractor", async (t) => {
+    const jobDir = await tempJob();
+    t.after(() => fs.rm(jobDir, { recursive: true, force: true }));
+    const story = path.join(jobDir, "story.png");
+    await fs.writeFile(story, PNG);
+    const calls = [];
+    const engines = new Map([
+        ["gallery-dl", fileEngine(story, "gallery-dl", calls)],
+        ["page-metadata", fileEngine(story, "page-metadata", calls)],
+    ]);
+
+    const result = await downloadMedia("https://www.instagram.com/stories/example/1234567890/", jobDir, {
+        outputType: "auto",
+        engines,
+    });
+
+    assert.deepEqual(calls, ["gallery-dl"]);
+    assert.equal(result.mediaKind, "image");
+});
+
 async function videoFixture(directory, name, withAudio) {
     const filePath = path.join(directory, name);
     const args = ["-f", "lavfi", "-i", "color=c=blue:s=64x64:r=10:d=0.5"];

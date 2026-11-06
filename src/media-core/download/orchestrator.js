@@ -64,6 +64,10 @@ function publicFailure(rawUrl, attempts, outputType) {
         return "The source is an image. Choose image output and try again.";
     }
 
+    if (source.instagramStory) {
+        return "Instagram did not return the requested story. It may have expired or may not be accessible.";
+    }
+
     if (source.instagram && /account authentication|cookies|login required/i.test(messages)) {
         return "Could not retrieve media from this source. Try another link or try again later.";
     }
